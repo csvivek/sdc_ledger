@@ -5,7 +5,8 @@ export type ClinicId = "SDC1" | "SDC2";
 export type ClinicOrShared = ClinicId | "SHARED";
 export type PaidBy = "PETTY_CASH" | "UPI" | "BANK";
 export type Role = "admin" | "staff";
-export type PayeeKind = "staff" | "lab" | "consultant";
+export type PayeeKind = "staff" | "lab" | "pharma" | "consultant";
+export const PAYEE_KINDS: PayeeKind[] = ["staff", "lab", "pharma", "consultant"];
 /** Is this expense already entered in PappyJoe? NA = not applicable. */
 export type InPappyJoe = "YES" | "NO" | "NA";
 
@@ -126,6 +127,7 @@ export const PAID_BY_LABEL: Record<PaidBy, string> = {
 export const PAYEE_KIND_LABEL: Record<PayeeKind, string> = {
   staff: "Staff member",
   lab: "Lab",
+  pharma: "Pharmacy / supplier",
   consultant: "Consultant",
 };
 

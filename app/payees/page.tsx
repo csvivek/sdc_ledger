@@ -1,12 +1,12 @@
 import { requireAdmin } from "@/lib/auth";
 import { getStore } from "@/lib/data/store";
-import { PAYEE_KIND_LABEL, type PayeeKind } from "@/lib/types";
+import { PAYEE_KIND_LABEL, PAYEE_KINDS, type PayeeKind } from "@/lib/types";
 import { addPayeeAdmin, togglePayeeActive } from "../actions";
 
 export const dynamic = "force-dynamic";
 
-const KINDS: PayeeKind[] = ["staff", "lab", "consultant"];
-const HEADING: Record<PayeeKind, string> = { staff: "Staff (salary)", lab: "Labs", consultant: "Consultants" };
+const KINDS = PAYEE_KINDS;
+const HEADING: Record<PayeeKind, string> = { staff: "Staff (salary)", lab: "Labs", pharma: "Pharmacies / suppliers", consultant: "Consultants" };
 
 export default async function PayeesPage() {
   await requireAdmin();
@@ -16,7 +16,7 @@ export default async function PayeesPage() {
     <>
       <h1>Payees</h1>
       <p className="muted">
-        Names offered on the expense form for Salary, Lab and Consultant. Staff can also add a new name while entering an
+        Names offered on the expense form for Salary, Lab, Pharma and Consultant. Staff can also add a new name while entering an
         expense. Hidden names stay on old entries but are no longer offered.
       </p>
 

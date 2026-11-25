@@ -9,6 +9,7 @@ const NEW_PAYEE = "__new__";
 const PAYEE_QUESTION: Record<PayeeKind, string> = {
   staff: "Salary for which staff member?",
   lab: "Which lab?",
+  pharma: "Which pharmacy or supplier?",
   consultant: "Consultant's name",
 };
 
@@ -86,7 +87,7 @@ export function ExpenseForm({
 
       {invoiceCategories.includes(category) && (
         <>
-          <label htmlFor="invoiceNo">{kind === "lab" ? "Lab invoice number" : "Invoice number"}</label>
+          <label htmlFor="invoiceNo">{kind === "lab" ? "Lab invoice number" : kind === "pharma" ? "Pharmacy invoice number" : "Invoice number"}</label>
           <input id="invoiceNo" name="invoiceNo" type="text" required maxLength={60} autoComplete="off" />
         </>
       )}

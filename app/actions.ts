@@ -7,7 +7,7 @@ import { getStore } from "@/lib/data/store";
 import { requireAdmin, requireUser, SESSION_COOKIE } from "@/lib/auth";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
 import { createClient } from "@/lib/supabase/server";
-import type { ClinicId, ClinicOrShared, InPappyJoe, PaidBy } from "@/lib/types";
+import { PAYEE_KINDS, type ClinicId, type ClinicOrShared, type InPappyJoe, type PaidBy, type PayeeKind } from "@/lib/types";
 
 export type LoginState = { error?: string };
 
@@ -124,8 +124,8 @@ export async function addPayeeAdmin(formData: FormData) {
   const user = await requireAdmin();
   const kind = String(formData.get("kind") ?? "");
   const name = String(formData.get("name") ?? "").trim().replace(/\s+/g, " ");
-  if (!["staff", "lab", "consultant"].includes(kind) || !name || name.length > 100) return;
-  await getStore().addPayee(kind as "staff" | "lab" | "consultant", name, user.id);
+  if (!(PAYEE_KINDS as string[]).includes(kind) || !name || name.length > 100) return;
+  await getStore().addPayee(kind as PayeeKind, name, user.id);
   revalidatePath("/payees");
 }
 
