@@ -12,6 +12,8 @@ import type {
   LedgerData,
   MonthKey,
   PappyJoeMonth,
+  Payee,
+  PayeeKind,
   PettyCashTransfer,
   ReconReason,
   User,
@@ -25,6 +27,9 @@ function rows<T>(res: { data: Row[] | null; error: { message: string } | null },
   return (res.data ?? []).map(map);
 }
 
+/** Escape % and _ so a name is matched literally by ilike. */
+const escapeLike = (s: string) => s.replace(/[\\%_]/g, (c) => `\\${c}`);
+
 export const toExpense = (r: Row): Expense => ({
   id: r.id,
   date: r.date,
@@ -34,8 +39,18 @@ export const toExpense = (r: Row): Expense => ({
   paidBy: r.paid_by,
   pettyCashClinic: r.petty_cash_clinic ?? undefined,
   note: r.note ?? "",
+  payeeId: r.payee_id ?? undefined,
+  labInvoiceNo: r.lab_invoice_no ?? undefined,
+  inPappyJoe: r.in_pappyjoe ?? undefined,
   enteredBy: r.entered_by,
   enteredAt: r.entered_at,
+});
+
+export const toPayee = (r: Row): Payee => ({
+  id: r.id,
+  kind: r.kind,
+  name: r.name,
+  active: r.active,
 });
 
 export const toUser = (r: Row): User => ({
@@ -50,10 +65,11 @@ export class SupabaseLedgerStore implements LedgerStore {
 
   async read(): Promise<LedgerData> {
     const sb = await this.client();
-    const [profiles, clinics, categories, expenses, transfers, pj, deposits, reasons, cards] = await Promise.all([
+    const [profiles, clinics, categories, payees, expenses, transfers, pj, deposits, reasons, cards] = await Promise.all([
       sb.from("profiles").select("*"),
       sb.from("clinics").select("*"),
       sb.from("categories").select("*").eq("active", true).order("sort_order"),
+      sb.from("payees").select("*").order("name"),
       sb.from("expenses").select("*"),
       sb.from("petty_cash_transfers").select("*"),
       sb.from("pappyjoe_income").select("*"),
@@ -62,12 +78,18 @@ export class SupabaseLedgerStore implements LedgerStore {
       sb.from("card_payments").select("*"),
     ]);
 
+    const cats = rows(categories, (r) => r);
+    const categoryPayeeKind: Record<string, PayeeKind> = {};
+    for (const c of cats) if (c.payee_kind) categoryPayeeKind[c.name] = c.payee_kind;
+
     const opening: Record<ClinicId, number> = { SDC1: 0, SDC2: 0 };
     for (const c of rows(clinics, (r) => r)) opening[c.id as ClinicId] = Number(c.petty_cash_opening);
 
     return {
       users: rows(profiles, toUser),
-      categories: rows(categories, (r) => r.name as string),
+      categories: cats.map((r) => r.name as string),
+      categoryPayeeKind,
+      payees: rows(payees, toPayee),
       expenses: rows(expenses, toExpense),
       pettyCashTransfers: rows(transfers, (r): PettyCashTransfer => ({
         id: r.id,
@@ -121,12 +143,33 @@ export class SupabaseLedgerStore implements LedgerStore {
         paid_by: e.paidBy,
         petty_cash_clinic: e.pettyCashClinic ?? null,
         note: e.note,
+        payee_id: e.payeeId ?? null,
+        lab_invoice_no: e.labInvoiceNo ?? null,
+        in_pappyjoe: e.inPappyJoe ?? null,
         entered_by: e.enteredBy,
       })
       .select()
       .single();
     if (error) throw new Error(error.message);
     return toExpense(data);
+  }
+
+  async addPayee(kind: PayeeKind, name: string, createdBy: string): Promise<Payee> {
+    const sb = await this.client();
+    const clean = name.trim();
+    const { data: existing, error: findErr } = await sb.from("payees").select("*").eq("kind", kind).ilike("name", escapeLike(clean));
+    if (findErr) throw new Error(findErr.message);
+    const found = (existing ?? []).find((r) => String(r.name).trim().toLowerCase() === clean.toLowerCase());
+    if (found) return toPayee(found);
+    const { data, error } = await sb.from("payees").insert({ kind, name: clean, created_by: createdBy }).select().single();
+    if (error) throw new Error(error.message);
+    return toPayee(data);
+  }
+
+  async setPayeeActive(id: string, active: boolean) {
+    const sb = await this.client();
+    const { error } = await sb.from("payees").update({ active }).eq("id", id);
+    if (error) throw new Error(error.message);
   }
 
   async setReconReason(month: MonthKey, clinic: ClinicId, reason: string) {

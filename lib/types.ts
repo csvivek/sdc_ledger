@@ -5,6 +5,17 @@ export type ClinicId = "SDC1" | "SDC2";
 export type ClinicOrShared = ClinicId | "SHARED";
 export type PaidBy = "PETTY_CASH" | "UPI" | "BANK";
 export type Role = "admin" | "staff";
+export type PayeeKind = "staff" | "lab" | "consultant";
+/** Is this expense already entered in PappyJoe? NA = not applicable. */
+export type InPappyJoe = "YES" | "NO" | "NA";
+
+/** A person or business an expense is paid to: a staff member (salary), a lab or a consultant. */
+export interface Payee {
+  id: string;
+  kind: PayeeKind;
+  name: string;
+  active: boolean;
+}
 
 /** A month key such as "2026-10". */
 export type MonthKey = string;
@@ -27,6 +38,12 @@ export interface Expense {
   /** Which clinic's petty cash box paid, when paidBy is PETTY_CASH. */
   pettyCashClinic?: ClinicId;
   note: string;
+  /** Who was paid, for categories that ask (Salary, Lab, Consultant). */
+  payeeId?: string;
+  /** Lab's invoice number, for Lab expenses. */
+  labInvoiceNo?: string;
+  /** Older entries saved before this question existed have no answer. */
+  inPappyJoe?: InPappyJoe;
   enteredBy: string; // user id
   enteredAt: string; // ISO timestamp
 }
@@ -80,6 +97,9 @@ export interface CardPayment {
 export interface LedgerData {
   users: User[];
   categories: string[];
+  /** Which kind of payee each category asks for, if any. */
+  categoryPayeeKind: Record<string, PayeeKind>;
+  payees: Payee[];
   expenses: Expense[];
   pettyCashTransfers: PettyCashTransfer[];
   pettyCashOpening: Record<ClinicId, number>;
@@ -99,6 +119,18 @@ export const PAID_BY_LABEL: Record<PaidBy, string> = {
   PETTY_CASH: "Petty cash",
   UPI: "UPI",
   BANK: "Bank",
+};
+
+export const PAYEE_KIND_LABEL: Record<PayeeKind, string> = {
+  staff: "Staff member",
+  lab: "Lab",
+  consultant: "Consultant",
+};
+
+export const IN_PAPPYJOE_LABEL: Record<InPappyJoe, string> = {
+  YES: "Yes",
+  NO: "No",
+  NA: "Not applicable",
 };
 
 export const CLINICS: ClinicId[] = ["SDC1", "SDC2"];

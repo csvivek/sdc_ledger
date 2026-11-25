@@ -12,7 +12,7 @@
 import { promises as fs } from "fs";
 import os from "os";
 import path from "path";
-import type { CardPayment, ClinicId, Expense, LedgerData, MonthKey, ReconReason } from "../types";
+import type { CardPayment, ClinicId, Expense, LedgerData, MonthKey, Payee, PayeeKind, ReconReason } from "../types";
 import { buildSeed } from "./seed";
 import { isSupabaseConfigured } from "../supabase/config";
 import { SupabaseLedgerStore } from "./supabase-store";
@@ -20,6 +20,9 @@ import { SupabaseLedgerStore } from "./supabase-store";
 export interface LedgerStore {
   read(): Promise<LedgerData>;
   addExpense(e: Omit<Expense, "id" | "enteredAt">): Promise<Expense>;
+  /** Adds a payee name, or returns the existing one with the same kind and name (any case). */
+  addPayee(kind: PayeeKind, name: string, createdBy: string): Promise<Payee>;
+  setPayeeActive(id: string, active: boolean): Promise<void>;
   setReconReason(month: MonthKey, clinic: ClinicId, reason: string): Promise<void>;
   markCardCredited(id: string, creditedOn: string | undefined): Promise<CardPayment | undefined>;
   reset(): Promise<void>;
@@ -35,7 +38,14 @@ const FILE = process.env.VERCEL
 class JsonFileStore implements LedgerStore {
   private async load(): Promise<LedgerData> {
     try {
-      return JSON.parse(await fs.readFile(FILE, "utf8")) as LedgerData;
+      const d = JSON.parse(await fs.readFile(FILE, "utf8")) as LedgerData;
+      // Files saved before payees existed: fill in the new fields from the seed.
+      if (!d.payees || !d.categoryPayeeKind) {
+        const seed = buildSeed();
+        d.payees ??= seed.payees;
+        d.categoryPayeeKind ??= seed.categoryPayeeKind;
+      }
+      return d;
     } catch {
       const seed = buildSeed();
       await this.save(seed);
@@ -58,6 +68,32 @@ class JsonFileStore implements LedgerStore {
     d.expenses.push(row);
     await this.save(d);
     return row;
+  }
+
+  async addPayee(kind: PayeeKind, name: string) {
+    const d = await this.load();
+    const clean = name.trim();
+    const found = d.payees.find((p) => p.kind === kind && p.name.toLowerCase() === clean.toLowerCase());
+    if (found) {
+      if (!found.active) {
+        found.active = true;
+        await this.save(d);
+      }
+      return found;
+    }
+    const row: Payee = { id: `payee_${Date.now()}`, kind, name: clean, active: true };
+    d.payees.push(row);
+    await this.save(d);
+    return row;
+  }
+
+  async setPayeeActive(id: string, active: boolean) {
+    const d = await this.load();
+    const p = d.payees.find((x) => x.id === id);
+    if (p) {
+      p.active = active;
+      await this.save(d);
+    }
   }
 
   async setReconReason(month: MonthKey, clinic: ClinicId, reason: string) {
