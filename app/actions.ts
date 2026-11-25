@@ -53,10 +53,10 @@ export async function addExpense(_prev: ExpenseFormState, formData: FormData): P
   let pettyCashClinic = String(formData.get("pettyCashClinic") ?? "") as ClinicId | "";
   const payeeChoice = String(formData.get("payeeId") ?? "");
   const newPayeeName = String(formData.get("newPayeeName") ?? "").trim().replace(/\s+/g, " ");
-  const labInvoiceNo = String(formData.get("labInvoiceNo") ?? "").trim();
+  const invoiceNo = String(formData.get("invoiceNo") ?? "").trim();
   const inPappyJoe = String(formData.get("inPappyJoe") ?? "") as InPappyJoe;
 
-  const d = await getStore().read();
+  const d = await getStore().formOptions();
   if (!(amount > 0)) return { error: "Enter an amount above zero." };
   if (!d.categories.includes(category)) return { error: "Pick a category." };
   if (!["SDC1", "SDC2", "SHARED"].includes(clinic)) return { error: "Pick a clinic." };
@@ -77,8 +77,11 @@ export async function addExpense(_prev: ExpenseFormState, formData: FormData): P
       if (!p) return { error: "Pick who this was paid to." };
       payeeId = p.id;
     }
-    if (kind === "lab" && !labInvoiceNo) return { error: "Enter the lab invoice number." };
-    if (labInvoiceNo.length > 60) return { error: "That invoice number is too long." };
+  }
+  const needsInvoice = d.invoiceCategories.includes(category);
+  if (needsInvoice) {
+    if (!invoiceNo) return { error: "Enter the invoice number." };
+    if (invoiceNo.length > 60) return { error: "That invoice number is too long." };
   }
 
   if (paidBy === "PETTY_CASH") {
@@ -105,7 +108,7 @@ export async function addExpense(_prev: ExpenseFormState, formData: FormData): P
       pettyCashClinic: paidBy === "PETTY_CASH" ? (pettyCashClinic as ClinicId) : undefined,
       note,
       payeeId,
-      labInvoiceNo: kind === "lab" ? labInvoiceNo : undefined,
+      invoiceNo: needsInvoice ? invoiceNo : undefined,
       inPappyJoe,
       enteredBy: user.id,
     });

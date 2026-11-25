@@ -174,6 +174,7 @@ export function buildSeed(): LedgerData {
     ],
     categories: CATEGORIES,
     categoryPayeeKind: { Salary: "staff", Lab: "lab", Consultant: "consultant" },
+    invoiceCategories: ["Lab", "Dental materials"],
     // Invented names, for the fake-data prototype only.
     payees: [
       { id: "payee_staff_1", kind: "staff", name: "Demo Assistant A", active: true },

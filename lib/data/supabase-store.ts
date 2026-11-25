@@ -18,7 +18,7 @@ import type {
   ReconReason,
   User,
 } from "../types";
-import type { LedgerStore } from "./store";
+import type { FormOptions, LedgerStore } from "./store";
 
 type Row = Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
 
@@ -40,7 +40,7 @@ export const toExpense = (r: Row): Expense => ({
   pettyCashClinic: r.petty_cash_clinic ?? undefined,
   note: r.note ?? "",
   payeeId: r.payee_id ?? undefined,
-  labInvoiceNo: r.lab_invoice_no ?? undefined,
+  invoiceNo: r.invoice_no ?? undefined,
   inPappyJoe: r.in_pappyjoe ?? undefined,
   enteredBy: r.entered_by,
   enteredAt: r.entered_at,
@@ -89,6 +89,7 @@ export class SupabaseLedgerStore implements LedgerStore {
       users: rows(profiles, toUser),
       categories: cats.map((r) => r.name as string),
       categoryPayeeKind,
+      invoiceCategories: cats.filter((r) => r.needs_invoice).map((r) => r.name as string),
       payees: rows(payees, toPayee),
       expenses: rows(expenses, toExpense),
       pettyCashTransfers: rows(transfers, (r): PettyCashTransfer => ({
@@ -131,6 +132,32 @@ export class SupabaseLedgerStore implements LedgerStore {
     };
   }
 
+  async recentExpenses(limit: number) {
+    const sb = await this.client();
+    const [expenses, profiles] = await Promise.all([
+      sb.from("expenses").select("*").order("entered_at", { ascending: false }).limit(limit),
+      sb.from("profiles").select("*"),
+    ]);
+    return { expenses: rows(expenses, toExpense), users: rows(profiles, toUser) };
+  }
+
+  async formOptions(): Promise<FormOptions> {
+    const sb = await this.client();
+    const [categories, payees] = await Promise.all([
+      sb.from("categories").select("name, payee_kind, needs_invoice").eq("active", true).order("sort_order"),
+      sb.from("payees").select("*").order("name"),
+    ]);
+    const cats = rows(categories, (r) => r);
+    const categoryPayeeKind: Record<string, PayeeKind> = {};
+    for (const c of cats) if (c.payee_kind) categoryPayeeKind[c.name] = c.payee_kind;
+    return {
+      categories: cats.map((r) => r.name as string),
+      categoryPayeeKind,
+      invoiceCategories: cats.filter((r) => r.needs_invoice).map((r) => r.name as string),
+      payees: rows(payees, toPayee),
+    };
+  }
+
   async addExpense(e: Omit<Expense, "id" | "enteredAt">): Promise<Expense> {
     const sb = await this.client();
     const { data, error } = await sb
@@ -144,7 +171,7 @@ export class SupabaseLedgerStore implements LedgerStore {
         petty_cash_clinic: e.pettyCashClinic ?? null,
         note: e.note,
         payee_id: e.payeeId ?? null,
-        lab_invoice_no: e.labInvoiceNo ?? null,
+        invoice_no: e.invoiceNo ?? null,
         in_pappyjoe: e.inPappyJoe ?? null,
         entered_by: e.enteredBy,
       })

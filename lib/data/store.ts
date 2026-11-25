@@ -17,8 +17,14 @@ import { buildSeed } from "./seed";
 import { isSupabaseConfigured } from "../supabase/config";
 import { SupabaseLedgerStore } from "./supabase-store";
 
+/** The lists the expense form needs: a much smaller read than read(). */
+export type FormOptions = Pick<LedgerData, "categories" | "categoryPayeeKind" | "invoiceCategories" | "payees">;
+
 export interface LedgerStore {
   read(): Promise<LedgerData>;
+  formOptions(): Promise<FormOptions>;
+  /** Newest entries first, as far as row level security lets this user see, plus the people who entered them. */
+  recentExpenses(limit: number): Promise<{ expenses: Expense[]; users: LedgerData["users"] }>;
   addExpense(e: Omit<Expense, "id" | "enteredAt">): Promise<Expense>;
   /** Adds a payee name, or returns the existing one with the same kind and name (any case). */
   addPayee(kind: PayeeKind, name: string, createdBy: string): Promise<Payee>;
@@ -40,10 +46,11 @@ class JsonFileStore implements LedgerStore {
     try {
       const d = JSON.parse(await fs.readFile(FILE, "utf8")) as LedgerData;
       // Files saved before payees existed: fill in the new fields from the seed.
-      if (!d.payees || !d.categoryPayeeKind) {
+      if (!d.payees || !d.categoryPayeeKind || !d.invoiceCategories) {
         const seed = buildSeed();
         d.payees ??= seed.payees;
         d.categoryPayeeKind ??= seed.categoryPayeeKind;
+        d.invoiceCategories ??= seed.invoiceCategories;
       }
       return d;
     } catch {
@@ -60,6 +67,17 @@ class JsonFileStore implements LedgerStore {
 
   read() {
     return this.load();
+  }
+
+  async recentExpenses(limit: number) {
+    const d = await this.load();
+    const expenses = [...d.expenses].sort((a, b) => b.enteredAt.localeCompare(a.enteredAt)).slice(0, limit);
+    return { expenses, users: d.users };
+  }
+
+  async formOptions() {
+    const d = await this.load();
+    return { categories: d.categories, categoryPayeeKind: d.categoryPayeeKind, invoiceCategories: d.invoiceCategories, payees: d.payees };
   }
 
   async addExpense(e: Omit<Expense, "id" | "enteredAt">) {

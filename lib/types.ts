@@ -40,8 +40,8 @@ export interface Expense {
   note: string;
   /** Who was paid, for categories that ask (Salary, Lab, Consultant). */
   payeeId?: string;
-  /** Lab's invoice number, for Lab expenses. */
-  labInvoiceNo?: string;
+  /** Supplier's invoice number, for categories that need one (Lab, Dental materials). */
+  invoiceNo?: string;
   /** Older entries saved before this question existed have no answer. */
   inPappyJoe?: InPappyJoe;
   enteredBy: string; // user id
@@ -99,6 +99,8 @@ export interface LedgerData {
   categories: string[];
   /** Which kind of payee each category asks for, if any. */
   categoryPayeeKind: Record<string, PayeeKind>;
+  /** Categories whose expenses need an invoice number. */
+  invoiceCategories: string[];
   payees: Payee[];
   expenses: Expense[];
   pettyCashTransfers: PettyCashTransfer[];

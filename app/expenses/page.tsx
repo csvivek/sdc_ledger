@@ -8,14 +8,13 @@ export const dynamic = "force-dynamic";
 
 export default async function ExpensesPage() {
   const user = await requireUser();
-  const d = await getStore().read();
+  const isAdmin = user.role === "admin";
+  const [d, recent] = await Promise.all([getStore().formOptions(), getStore().recentExpenses(isAdmin ? 30 : 8)]);
   const today = new Date().toISOString().slice(0, 10);
-  const mine = d.expenses
-    .filter((e) => user.role === "admin" || e.enteredBy === user.id)
-    .sort((a, b) => b.enteredAt.localeCompare(a.enteredAt))
-    .slice(0, user.role === "admin" ? 30 : 8);
+  // The fake-data store returns everyone's entries, so keep the staff filter.
+  const mine = recent.expenses.filter((e) => isAdmin || e.enteredBy === user.id);
   const payeeNames = Object.fromEntries(d.payees.map((p) => [p.id, p.name]));
-  const names = Object.fromEntries(d.users.map((u) => [u.id, u.name]));
+  const names = Object.fromEntries(recent.users.map((u) => [u.id, u.name]));
 
   return (
     <>
@@ -24,6 +23,7 @@ export default async function ExpensesPage() {
         <ExpenseForm
           categories={d.categories}
           categoryPayeeKind={d.categoryPayeeKind}
+          invoiceCategories={d.invoiceCategories}
           payees={d.payees}
           defaultClinic={user.clinic}
           today={today}
@@ -39,7 +39,7 @@ export default async function ExpensesPage() {
               <th className="num">Amount</th>
               <th>Category</th>
               <th>Paid to</th>
-              <th>Lab invoice</th>
+              <th>Invoice no.</th>
               <th>In PappyJoe?</th>
               <th>Clinic</th>
               <th>Paid by</th>
@@ -54,7 +54,7 @@ export default async function ExpensesPage() {
                 <td className="num">{inr(e.amount)}</td>
                 <td>{e.category}</td>
                 <td>{e.payeeId ? (payeeNames[e.payeeId] ?? "") : ""}</td>
-                <td>{e.labInvoiceNo ?? ""}</td>
+                <td>{e.invoiceNo ?? ""}</td>
                 <td>{e.inPappyJoe ? IN_PAPPYJOE_LABEL[e.inPappyJoe] : <span className="muted">not asked</span>}</td>
                 <td>{CLINIC_LABEL[e.clinic]}</td>
                 <td>

@@ -15,12 +15,14 @@ const PAYEE_QUESTION: Record<PayeeKind, string> = {
 export function ExpenseForm({
   categories,
   categoryPayeeKind,
+  invoiceCategories,
   payees,
   defaultClinic,
   today,
 }: {
   categories: string[];
   categoryPayeeKind: Record<string, PayeeKind>;
+  invoiceCategories: string[];
   payees: Payee[];
   defaultClinic?: ClinicId;
   today: string;
@@ -82,10 +84,10 @@ export function ExpenseForm({
         </>
       )}
 
-      {kind === "lab" && (
+      {invoiceCategories.includes(category) && (
         <>
-          <label htmlFor="labInvoiceNo">Lab invoice number</label>
-          <input id="labInvoiceNo" name="labInvoiceNo" type="text" required maxLength={60} autoComplete="off" />
+          <label htmlFor="invoiceNo">{kind === "lab" ? "Lab invoice number" : "Invoice number"}</label>
+          <input id="invoiceNo" name="invoiceNo" type="text" required maxLength={60} autoComplete="off" />
         </>
       )}
 
