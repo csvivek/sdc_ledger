@@ -4,14 +4,18 @@
 // the JSON file directly. When we move to Supabase, we write a
 // `SupabaseLedgerStore` with the same methods and change `getStore()`.
 //
-// MOCK: the current implementation keeps everything in data/store.json on the
-// server's disk, created from lib/data/seed.ts on first use.
+// When the Supabase environment variables are set, getStore() returns the
+// Supabase store (lib/data/supabase-store.ts). Otherwise it falls back to the
+// MOCK store below, which keeps fake data in data/store.json on the server's
+// disk, created from lib/data/seed.ts on first use.
 
 import { promises as fs } from "fs";
 import os from "os";
 import path from "path";
 import type { CardPayment, ClinicId, Expense, LedgerData, MonthKey, ReconReason } from "../types";
 import { buildSeed } from "./seed";
+import { isSupabaseConfigured } from "../supabase/config";
+import { SupabaseLedgerStore } from "./supabase-store";
 
 export interface LedgerStore {
   read(): Promise<LedgerData>;
@@ -83,6 +87,6 @@ class JsonFileStore implements LedgerStore {
 
 let store: LedgerStore | undefined;
 export function getStore(): LedgerStore {
-  store ??= new JsonFileStore();
+  store ??= isSupabaseConfigured ? new SupabaseLedgerStore() : new JsonFileStore();
   return store;
 }

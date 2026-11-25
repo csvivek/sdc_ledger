@@ -5,9 +5,27 @@ import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { getStore } from "@/lib/data/store";
 import { requireAdmin, requireUser, SESSION_COOKIE } from "@/lib/auth";
+import { isSupabaseConfigured } from "@/lib/supabase/config";
+import { createClient } from "@/lib/supabase/server";
 import type { ClinicId, ClinicOrShared, PaidBy } from "@/lib/types";
 
+export type LoginState = { error?: string };
+
+/** Real login with email and password (Supabase configured). */
+export async function loginWithPassword(_prev: LoginState, formData: FormData): Promise<LoginState> {
+  if (!isSupabaseConfigured) return { error: "Logins are not set up yet." };
+  const email = String(formData.get("email") ?? "").trim();
+  const password = String(formData.get("password") ?? "");
+  if (!email || !password) return { error: "Enter your email and password." };
+  const sb = await createClient();
+  const { error } = await sb.auth.signInWithPassword({ email, password });
+  if (error) return { error: "Wrong email or password." };
+  redirect("/");
+}
+
+/** MOCK login: pick a fake user (prototype only). */
 export async function login(formData: FormData) {
+  if (isSupabaseConfigured) redirect("/login");
   const uid = String(formData.get("user") ?? "");
   const d = await getStore().read();
   const u = d.users.find((x) => x.id === uid);
@@ -17,6 +35,7 @@ export async function login(formData: FormData) {
 }
 
 export async function logout() {
+  if (isSupabaseConfigured) await (await createClient()).auth.signOut();
   (await cookies()).delete(SESSION_COOKIE);
   redirect("/login");
 }
@@ -45,16 +64,21 @@ export async function addExpense(_prev: ExpenseFormState, formData: FormData): P
       return { error: "Pick which clinic's petty cash paid for it." };
   }
 
-  await getStore().addExpense({
-    date,
-    amount,
-    category,
-    clinic,
-    paidBy,
-    pettyCashClinic: paidBy === "PETTY_CASH" ? (pettyCashClinic as ClinicId) : undefined,
-    note,
-    enteredBy: user.id,
-  });
+  try {
+    await getStore().addExpense({
+      date,
+      amount,
+      category,
+      clinic,
+      paidBy,
+      pettyCashClinic: paidBy === "PETTY_CASH" ? (pettyCashClinic as ClinicId) : undefined,
+      note,
+      enteredBy: user.id,
+    });
+  } catch (err) {
+    console.error("addExpense failed", err);
+    return { error: "Could not save. Please try again." };
+  }
   revalidatePath("/", "layout");
   return { ok: `Saved ₹${amount.toLocaleString("en-IN")} for ${category}.` };
 }
@@ -78,6 +102,7 @@ export async function toggleCardCredited(formData: FormData) {
 
 export async function resetDemoData() {
   await requireAdmin();
+  if (isSupabaseConfigured) return;
   await getStore().reset();
   revalidatePath("/", "layout");
 }
