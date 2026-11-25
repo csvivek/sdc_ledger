@@ -25,4 +25,25 @@ SDC Ledger replaces the monthly Excel workbook with a simple web app that:
 
 ## Status
 
-Requirements are awaiting the doctor's sign-off. No application code has been written yet.
+A clickable **prototype** with fake data is in this repo, to show the doctor. It is not connected to PappyJoe, HDFC or Supabase.
+
+### Run the prototype
+
+```bash
+npm install
+npm run dev
+```
+
+Open http://localhost:3000 and pick a user on the login page (no password):
+
+- **Doctor (Admin)** sees the dashboard, expense entry, petty cash, reconciliation and card income.
+- **Front desk, SDC 1 / SDC 2** only see the expense entry page.
+
+Fake data is created from `lib/data/seed.ts` into `data/store.json` on first run. The dashboard has a **Reset demo data** button.
+
+### Code layout
+
+- `lib/types.ts`: data shapes (planned Supabase tables).
+- `lib/data/store.ts`: the only place that reads or writes data. Swap `JsonFileStore` for a Supabase version later.
+- `lib/calc.ts`: P&L, petty cash and reconciliation maths, with no I/O.
+- `app/`: pages and server actions.
