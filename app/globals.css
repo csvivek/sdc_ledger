@@ -160,3 +160,20 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 
 .recon-form { display: flex; gap: 8px; margin-top: 8px; }
 .recon-form input { flex: 1; }
+
+/* Import and reconciliation */
+.debit-form .narration { font-size: 13px; word-break: break-all; margin: 4px 0; }
+.debit-fields { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 6px; }
+.debit-fields select, .debit-fields input { flex: 1 1 180px; width: auto; }
+.debit-form label.remember { display: flex; gap: 6px; align-items: center; font-weight: 500; margin: 8px 0 0; }
+.debit-form label.remember input { width: auto; }
+.debit-form.compact { margin: 6px 0 0; }
+.import-result { margin-top: 12px; padding: 8px 10px; border-radius: 8px; font-size: 14px; }
+.import-result.good { background: #e3f4e8; }
+.import-result.bad { background: #fde7e5; }
+.import-result ul { margin: 4px 0 0; padding-left: 18px; }
+td.wrap { white-space: normal; word-break: break-word; min-width: 200px; }
+details.card summary { cursor: pointer; font-weight: 600; }
+.recon-line { display: flex; justify-content: space-between; gap: 12px; padding: 4px 0; font-size: 15px; }
+.recon-line.total { border-top: 1px solid var(--line); font-weight: 600; margin-top: 4px; padding-top: 8px; }
+.section-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; }

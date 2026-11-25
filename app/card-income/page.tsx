@@ -22,7 +22,9 @@ export default async function CardIncomePage() {
       <p className="muted">
         Card payments recorded in PappyJoe that the doctor collected and has not yet paid into the clinic account.
       </p>
-      <p className="mock-note">Mock: card payments are seed data. Later they will come from the PappyJoe export and match bank credits automatically.</p>
+      <p className="muted">
+        Card payments are added here when a PappyJoe export is imported. Reconcile suggests which bank credit paid each one in.
+      </p>
 
       <div className="grid">
         <div className="card stat">

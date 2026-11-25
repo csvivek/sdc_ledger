@@ -1,6 +1,7 @@
 // MOCK DATA. Every name, amount and date here is invented for the prototype.
 // Nothing comes from the real workbook, PappyJoe or HDFC.
 
+import { SEED_RULES } from "../import/rules";
 import type {
   BankDeposit,
   CardPayment,
@@ -25,6 +26,8 @@ const CATEGORIES = [
   "Marketing",
   "Bank charges",
   "Miscellaneous",
+  "Biowaste",
+  "Dental chair service",
 ];
 
 let n = 0;
@@ -198,5 +201,10 @@ export function buildSeed(): LedgerData {
       },
     ],
     cardPayments: buildCardPayments(),
+    // Imports start empty in fake-data mode too: upload real files on /import to try them.
+    bankTxns: [],
+    bankRules: SEED_RULES.map((r, i) => ({ ...r, id: `rule_${i + 1}` })),
+    pjReceipts: [],
+    reconNotes: [],
   };
 }
