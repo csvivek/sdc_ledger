@@ -71,7 +71,7 @@ export default async function ReconciliationPage({ searchParams }: { searchParam
           <div className="muted">{r.upi.pjOnly.length + r.upi.bankOnly.length} payments to look at</div>
         </div>
         <div className="card stat">
-          <div className="label">Cash not deposited or spent</div>
+          <div className="label">Cash collected, not yet deposited</div>
           <div className={`value ${Math.round(r.cash.unexplained) ? "neg" : "pos"}`}>{inr(r.cash.unexplained)}</div>
           <div className="muted">Collected {inr(r.cash.pjTotal)} · deposited {inr(r.cash.deposited)}</div>
         </div>
@@ -162,15 +162,51 @@ export default async function ReconciliationPage({ searchParams }: { searchParam
         <Line label={`PappyJoe cash · ${CLINIC_LABEL.SDC2}`} value={r.cash.pj.SDC2} />
         <Line label="Cash collected, both clinics" value={r.cash.pjTotal} total />
         <Line label={`Deposited in HDFC (${r.cash.deposits.length} deposit${r.cash.deposits.length === 1 ? "" : "s"})`} value={-r.cash.deposited} />
-        <Line label="Spent in cash (petty cash expenses entered in the portal)" value={-r.cash.spentTotal} />
-        <Line label="Not deposited or explained" value={r.cash.unexplained} total neg />
+        <Line label="Not yet deposited" value={r.cash.unexplained} total neg />
         {r.cash.deposits.length > 0 && (
           <p className="muted">Deposits: {r.cash.deposits.map((t) => `${inr(t.deposit)} on ${t.date}`).join(", ")}.</p>
         )}
         <p className="muted">
-          Cash goes in as a few lumps, so this compares month totals. Cash still in hand at month end shows here until it is deposited.
+          Cash goes in as a few lumps, so this compares month totals. Patient cash is never used for expenses; those come out of
+          petty cash, below.
         </p>
         <Note month={month} topic="CASH" notes={d.reconNotes} />
+      </div>
+
+      <h2>Petty cash</h2>
+      <div className="card">
+        <div className="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th></th>
+                <th className="num">Start of month</th>
+                <th className="num">Received</th>
+                <th className="num">Spent</th>
+                <th className="num">End of month</th>
+              </tr>
+            </thead>
+            <tbody>
+              {(["SDC1", "SDC2"] as const).map((c) => {
+                const p = r.petty[c];
+                return (
+                  <tr key={c}>
+                    <td>{CLINIC_LABEL[c]}</td>
+                    <td className="num">{inr(p.opening)}</td>
+                    <td className="num">{inr(p.received)}</td>
+                    <td className="num">{inr(p.spent)}</td>
+                    <td className={`num ${p.closing < 0 ? "neg" : ""}`}>{inr(p.closing)}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+        <p className="muted">
+          Received = PETTY CASH transfers to the doctor in the bank statement, split equally between the clinics. Spent = expenses
+          entered in the portal as paid from petty cash. A negative balance means spending was entered that the transfers do not
+          cover. <Link href="/petty-cash">See petty cash</Link>
+        </p>
       </div>
 
       {/* ---------------- Card ---------------- */}

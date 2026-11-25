@@ -6,8 +6,10 @@
 //      receipts on one day added together; then two UPI credits that add up
 //      to one receipt). Bank UPI cannot tell the clinics apart, so both
 //      clinics' receipts are matched against the one account.
-//   2. PappyJoe cash          ->   cash deposits + cash spent on expenses,
-//      compared as monthly totals (cash goes in as a few lumps).
+//   2. PappyJoe cash          ->   cash deposits, compared as monthly totals
+//      (cash goes in as a few lumps). Expenses are never paid from patient
+//      cash: they come out of petty cash, which is funded only by the bank
+//      transfers (per Vivek), so petty cash gets its own balance per clinic.
 //   3. PappyJoe card          ->   "pending" until a matching non-UPI credit
 //      (or a UPI from the doctor's account) shows up, or the admin marks it.
 //   4. Portal expenses paid by bank or UPI  <->  bank debits (same amount,
@@ -197,10 +199,10 @@ export interface MonthRecon {
     pjTotal: number;
     deposits: BankTxn[];
     deposited: number;
-    spent: Record<ClinicId, number>;
-    spentTotal: number;
     unexplained: number;
   };
+  /** Per clinic: petty cash received and spent this month, and the balance at month end. */
+  petty: Record<ClinicId, { opening: number; received: number; spent: number; closing: number }>;
   card: {
     receipts: PjReceipt[];
     total: number;
@@ -239,10 +241,19 @@ export function reconcileMonth(d: LedgerData, month: MonthKey): MonthRecon {
   const cashR = rec.filter((r) => r.mode === "CASH");
   const cashPj = byClinic(cashR);
   const deposits = txns.filter((t) => t.kind === "CASH_DEPOSIT");
-  const pettyExp = d.expenses.filter((e) => e.paidBy === "PETTY_CASH" && monthOf(e.date) === month);
-  const spent = {
-    SDC1: sum(pettyExp.filter((e) => e.pettyCashClinic === "SDC1"), (e) => e.amount),
-    SDC2: sum(pettyExp.filter((e) => e.pettyCashClinic === "SDC2"), (e) => e.amount),
+  // Petty cash: manual transfers plus bank PETTY CASH transfers split equally.
+  const pettyIn = (c: ClinicId, f: (m: string) => boolean) =>
+    sum(d.pettyCashTransfers.filter((t) => t.clinic === c && f(monthOf(t.date))), (t) => t.amount) +
+    sum(d.bankTxns.filter((t) => t.kind === "PETTY_CASH" && f(monthOf(t.date))), (t) => t.withdrawal / 2);
+  const pettyOut = (c: ClinicId, f: (m: string) => boolean) =>
+    sum(d.expenses.filter((e) => e.paidBy === "PETTY_CASH" && e.pettyCashClinic === c && f(monthOf(e.date))), (e) => e.amount);
+  const pettyFor = (c: ClinicId) => {
+    const before = (m: string) => m < month;
+    const now = (m: string) => m === month;
+    const opening = d.pettyCashOpening[c] + pettyIn(c, before) - pettyOut(c, before);
+    const received = pettyIn(c, now);
+    const spent = pettyOut(c, now);
+    return { opening, received, spent, closing: opening + received - spent };
   };
 
   const cardR = rec.filter((r) => r.mode === "CARD");
@@ -275,10 +286,9 @@ export function reconcileMonth(d: LedgerData, month: MonthKey): MonthRecon {
       pjTotal: cashTotal,
       deposits,
       deposited,
-      spent,
-      spentTotal: spent.SDC1 + spent.SDC2,
-      unexplained: cashTotal - deposited - spent.SDC1 - spent.SDC2,
+      unexplained: cashTotal - deposited,
     },
+    petty: { SDC1: pettyFor("SDC1"), SDC2: pettyFor("SDC2") },
     card: {
       receipts: cardR,
       total: sum(cardR, (r) => r.amount),
