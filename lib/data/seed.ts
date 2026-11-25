@@ -173,7 +173,7 @@ export function buildSeed(): LedgerData {
       { id: "staff2", name: "Front desk, SDC 2", role: "staff", clinic: "SDC2" },
     ],
     categories: CATEGORIES,
-    categoryPayeeKind: { Salary: "staff", Lab: "lab", Pharma: "pharma", Consultant: "consultant" },
+    categoryPayeeKind: { Salary: "staff", Lab: "lab", Pharma: "pharma", "Dental materials": "supplier", Consultant: "consultant" },
     invoiceCategories: ["Lab", "Pharma", "Dental materials"],
     // Invented names, for the fake-data prototype only.
     payees: [
@@ -181,6 +181,7 @@ export function buildSeed(): LedgerData {
       { id: "payee_staff_2", kind: "staff", name: "Demo Assistant B", active: true },
       { id: "payee_lab_1", kind: "lab", name: "Demo Dental Lab", active: true },
       { id: "payee_pharma_1", kind: "pharma", name: "Demo Pharmacy", active: true },
+      { id: "payee_supplier_1", kind: "supplier", name: "Demo Dental Supply", active: true },
       { id: "payee_cons_1", kind: "consultant", name: "Demo Consultant", active: true },
     ],
     expenses: buildExpenses(),

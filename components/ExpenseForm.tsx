@@ -10,6 +10,7 @@ const PAYEE_QUESTION: Record<PayeeKind, string> = {
   staff: "Salary for which staff member?",
   lab: "Which lab?",
   pharma: "Which pharmacy or supplier?",
+  supplier: "Which dental materials supplier?",
   consultant: "Consultant's name",
 };
 
