@@ -41,6 +41,10 @@ Open http://localhost:3000 and pick a user on the login page (no password):
 
 Fake data is created from `lib/data/seed.ts` into `data/store.json` on first run. The dashboard has a **Reset demo data** button.
 
+### Deploy on Vercel
+
+The prototype deploys on Vercel with default settings: no environment variables, no secrets. On Vercel the fake data is kept in the server's temporary folder, so anything entered during a demo can reset back to the seed data when Vercel restarts the app.
+
 ### Code layout
 
 - `lib/types.ts`: data shapes (planned Supabase tables).

@@ -8,6 +8,7 @@
 // server's disk, created from lib/data/seed.ts on first use.
 
 import { promises as fs } from "fs";
+import os from "os";
 import path from "path";
 import type { CardPayment, ClinicId, Expense, LedgerData, MonthKey, ReconReason } from "../types";
 import { buildSeed } from "./seed";
@@ -20,7 +21,12 @@ export interface LedgerStore {
   reset(): Promise<void>;
 }
 
-const FILE = path.join(process.cwd(), "data", "store.json");
+// Locally the file lives in ./data. On Vercel the app folder is read-only, so
+// we use the temp folder instead. That copy is per server instance and is wiped
+// when Vercel recycles it, so demo entries there can reset to the seed data.
+const FILE = process.env.VERCEL
+  ? path.join(os.tmpdir(), "sdc-ledger", "store.json")
+  : path.join(process.cwd(), "data", "store.json");
 
 class JsonFileStore implements LedgerStore {
   private async load(): Promise<LedgerData> {
