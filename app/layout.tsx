@@ -16,6 +16,7 @@ const ADMIN_NAV = [
   ["/dashboard", "Dashboard"],
   ["/expenses", "Add expense"],
   ["/petty-cash", "Petty cash"],
+  ["/import", "Import"],
   ["/reconciliation", "Reconcile"],
   ["/card-income", "Card income"],
   ["/payees", "Payees"],

@@ -95,6 +95,90 @@ export interface CardPayment {
   creditedOn?: string; // date it reached the clinic bank account
 }
 
+/** How a bank row was understood. Credits: UPI_IN, CASH_DEPOSIT, OTHER_IN. Debits: the rest. */
+export type BankTxnKind = "UPI_IN" | "CASH_DEPOSIT" | "OTHER_IN" | "EXPENSE" | "PETTY_CASH" | "TRANSFER_OUT" | "UNKNOWN_OUT";
+
+export const BANK_KIND_LABEL: Record<BankTxnKind, string> = {
+  UPI_IN: "UPI received",
+  CASH_DEPOSIT: "Cash deposit",
+  OTHER_IN: "Other credit",
+  EXPENSE: "Expense",
+  PETTY_CASH: "Petty cash to clinics",
+  TRANSFER_OUT: "Transfer (not an expense)",
+  UNKNOWN_OUT: "Needs a category",
+};
+
+/** One row of the HDFC statement, as imported. */
+export interface BankTxn {
+  id: string;
+  date: string; // YYYY-MM-DD
+  narration: string;
+  refNo: string;
+  valueDate: string;
+  withdrawal: number;
+  deposit: number;
+  balance: number;
+  kind: BankTxnKind;
+  category?: string;
+  clinic?: ClinicOrShared;
+  /** The rule that categorised it automatically; empty when the admin chose by hand. */
+  ruleId?: string;
+  /** Stops the same row being imported twice. */
+  fingerprint: string;
+}
+
+/** What a bank rule does to a matching debit. */
+export type RuleAction = "EXPENSE" | "PETTY_CASH" | "TRANSFER_OUT";
+
+/** "If the narration matches this, it is that." Seeded from the October sample; the admin's answers add more. */
+export interface BankRule {
+  id: string;
+  pattern: string;
+  matchType: "contains" | "regex";
+  action: RuleAction;
+  category?: string;
+  clinic?: ClinicOrShared;
+  priority: number;
+}
+
+export type PayMode = "CASH" | "UPI" | "CARD" | "OTHER";
+
+/** One payment line from the PappyJoe "Payments" export. */
+export interface PjReceipt {
+  id: string;
+  clinic: ClinicId;
+  date: string;
+  patientName: string;
+  patientId: string;
+  receiptNo: string;
+  invoiceNo: string;
+  invoiceTotal: number;
+  /** Negative values are reversals or corrections in PappyJoe. */
+  amount: number;
+  mode: PayMode;
+  paymentInfo: string;
+  receiptBy: string;
+}
+
+export interface ImportBatch {
+  id: string;
+  source: "HDFC" | "PAPPYJOE";
+  clinic?: ClinicId;
+  fileName: string;
+  firstDate?: string;
+  lastDate?: string;
+  rowsRead: number;
+  rowsAdded: number;
+  importedAt: string;
+}
+
+/** Admin's explanation for one part of a month's reconciliation. */
+export interface ReconNote {
+  month: MonthKey;
+  topic: "UPI" | "CASH" | "CARD" | "EXPENSES";
+  note: string;
+}
+
 export interface LedgerData {
   users: User[];
   categories: string[];
@@ -110,6 +194,10 @@ export interface LedgerData {
   bankDeposits: BankDeposit[];
   reconReasons: ReconReason[];
   cardPayments: CardPayment[];
+  bankTxns: BankTxn[];
+  bankRules: BankRule[];
+  pjReceipts: PjReceipt[];
+  reconNotes: ReconNote[];
 }
 
 export const CLINIC_LABEL: Record<ClinicOrShared, string> = {

@@ -48,7 +48,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
         </p>
       )}
       <p className="muted">
-        Income is PappyJoe cash + UPI + card. Expenses exclude petty cash withdrawals, which are transfers. Shared expenses are split{" "}
+        Income is PappyJoe cash + UPI + card. Expenses are portal entries plus categorised bank payments nobody entered in the portal; petty cash withdrawals are transfers, not expenses, and bank payments still waiting for an answer on Import are left out. Shared expenses are split{" "}
         {SHARED_SPLIT.SDC1 * 100}/{SHARED_SPLIT.SDC2 * 100} between clinics (mock rule, to confirm).
       </p>
 

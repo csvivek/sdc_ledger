@@ -16,7 +16,7 @@ export default async function PettyCashPage() {
         The doctor&apos;s two monthly withdrawals (one per clinic) move money from the bank into each clinic&apos;s petty cash.
         They are transfers, not expenses. Expenses paid from petty cash reduce the balance.
       </p>
-      <p className="mock-note">Mock: withdrawals and the opening balance are seed data. Later they will come from the HDFC statement.</p>
+      <p className="muted">Transfers marked PETTY CASH in the imported HDFC statement are split equally between the clinics.</p>
 
       <div className="grid">
         {CLINICS.map((c) => {

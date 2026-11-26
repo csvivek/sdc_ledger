@@ -12,7 +12,21 @@
 import { promises as fs } from "fs";
 import os from "os";
 import path from "path";
-import type { CardPayment, ClinicId, Expense, LedgerData, MonthKey, Payee, PayeeKind, ReconReason } from "../types";
+import type {
+  BankRule,
+  BankTxn,
+  CardPayment,
+  ClinicId,
+  Expense,
+  ImportBatch,
+  LedgerData,
+  MonthKey,
+  Payee,
+  PayeeKind,
+  PjReceipt,
+  ReconNote,
+  ReconReason,
+} from "../types";
 import { buildSeed } from "./seed";
 import { isSupabaseConfigured } from "../supabase/config";
 import { SupabaseLedgerStore } from "./supabase-store";
@@ -32,7 +46,35 @@ export interface LedgerStore {
   setReconReason(month: MonthKey, clinic: ClinicId, reason: string): Promise<void>;
   markCardCredited(id: string, creditedOn: string | undefined): Promise<CardPayment | undefined>;
   reset(): Promise<void>;
+
+  // Imports (admin only).
+  /** Adds bank rows; rows whose fingerprint is already stored are skipped. */
+  importBank(rows: Omit<BankTxn, "id">[], meta: ImportMeta): Promise<ImportResult>;
+  /** Adds PappyJoe receipts for one clinic; receipt numbers already stored are skipped. Card payments also go to card_payments. */
+  importPappyJoe(clinic: ClinicId, rows: Omit<PjReceipt, "id" | "clinic">[], meta: ImportMeta): Promise<ImportResult>;
+  listImports(limit: number): Promise<ImportBatch[]>;
+  updateBankTxn(id: string, patch: Pick<BankTxn, "kind" | "category" | "clinic" | "ruleId">): Promise<void>;
+  addBankRule(rule: Omit<BankRule, "id">, createdBy: string): Promise<BankRule>;
+  deleteBankRule(id: string): Promise<void>;
+  setReconNote(month: MonthKey, topic: ReconNote["topic"], note: string): Promise<void>;
 }
+
+export interface ImportMeta {
+  fileName: string;
+  importedBy: string;
+}
+
+export interface ImportResult {
+  read: number;
+  added: number;
+  skipped: number;
+  cardsAdded?: number;
+}
+
+const span = (dates: string[]) => {
+  const s = [...dates].sort();
+  return { firstDate: s[0], lastDate: s[s.length - 1] };
+};
 
 // Locally the file lives in ./data. On Vercel the app folder is read-only, so
 // we use the temp folder instead. That copy is per server instance and is wiped
@@ -42,19 +84,25 @@ const FILE = process.env.VERCEL
   : path.join(process.cwd(), "data", "store.json");
 
 class JsonFileStore implements LedgerStore {
-  private async load(): Promise<LedgerData> {
+  private async load(): Promise<StoredData> {
     try {
-      const d = JSON.parse(await fs.readFile(FILE, "utf8")) as LedgerData;
+      const d = JSON.parse(await fs.readFile(FILE, "utf8")) as StoredData;
       // Files saved before payees existed: fill in the new fields from the seed.
-      if (!d.payees || !d.categoryPayeeKind || !d.invoiceCategories) {
+      if (!d.payees || !d.categoryPayeeKind || !d.invoiceCategories || !d.bankRules) {
         const seed = buildSeed();
         d.payees ??= seed.payees;
         d.categoryPayeeKind ??= seed.categoryPayeeKind;
         d.invoiceCategories ??= seed.invoiceCategories;
+        d.bankRules ??= seed.bankRules;
+        d.bankTxns ??= [];
+        d.pjReceipts ??= [];
+        d.reconNotes ??= [];
+        for (const c of seed.categories) if (!d.categories.includes(c)) d.categories.push(c);
       }
+      d.imports ??= [];
       return d;
     } catch {
-      const seed = buildSeed();
+      const seed: StoredData = { ...buildSeed(), imports: [] };
       await this.save(seed);
       return seed;
     }
@@ -137,7 +185,78 @@ class JsonFileStore implements LedgerStore {
   async reset() {
     await this.save(buildSeed());
   }
+
+  private addBatch(d: StoredData, b: Omit<ImportBatch, "id" | "importedAt">) {
+    d.imports.push({ ...b, id: `imp_${Date.now()}_${d.imports.length}`, importedAt: new Date().toISOString() });
+  }
+
+  async importBank(rows: Omit<BankTxn, "id">[], meta: ImportMeta) {
+    const d = await this.load();
+    const have = new Set(d.bankTxns.map((t) => t.fingerprint));
+    const fresh = rows.filter((r) => !have.has(r.fingerprint));
+    fresh.forEach((r, i) => d.bankTxns.push({ ...r, id: `txn_${Date.now()}_${i}` }));
+    this.addBatch(d, { source: "HDFC", fileName: meta.fileName, ...span(rows.map((r) => r.date)), rowsRead: rows.length, rowsAdded: fresh.length });
+    await this.save(d);
+    return { read: rows.length, added: fresh.length, skipped: rows.length - fresh.length };
+  }
+
+  async importPappyJoe(clinic: ClinicId, rows: Omit<PjReceipt, "id" | "clinic">[], meta: ImportMeta) {
+    const d = await this.load();
+    const have = new Set(d.pjReceipts.filter((r) => r.clinic === clinic).map((r) => r.receiptNo));
+    const fresh = rows.filter((r) => !have.has(r.receiptNo));
+    let cardsAdded = 0;
+    fresh.forEach((r, i) => {
+      const id = `pj_${Date.now()}_${i}`;
+      d.pjReceipts.push({ ...r, id, clinic });
+      if (r.mode === "CARD" && r.amount > 0) {
+        d.cardPayments.push({ id: `card_${id}`, date: r.date, clinic, patientRef: `${r.patientName} · receipt ${r.receiptNo}`, amount: r.amount });
+        cardsAdded++;
+      }
+    });
+    this.addBatch(d, { source: "PAPPYJOE", clinic, fileName: meta.fileName, ...span(rows.map((r) => r.date)), rowsRead: rows.length, rowsAdded: fresh.length });
+    await this.save(d);
+    return { read: rows.length, added: fresh.length, skipped: rows.length - fresh.length, cardsAdded };
+  }
+
+  async listImports(limit: number) {
+    const d = await this.load();
+    return [...d.imports].sort((a, b) => b.importedAt.localeCompare(a.importedAt)).slice(0, limit);
+  }
+
+  async updateBankTxn(id: string, patch: Pick<BankTxn, "kind" | "category" | "clinic" | "ruleId">) {
+    const d = await this.load();
+    const t = d.bankTxns.find((x) => x.id === id);
+    if (t) {
+      Object.assign(t, patch);
+      await this.save(d);
+    }
+  }
+
+  async addBankRule(rule: Omit<BankRule, "id">) {
+    const d = await this.load();
+    const row: BankRule = { ...rule, id: `rule_${Date.now()}` };
+    d.bankRules.push(row);
+    await this.save(d);
+    return row;
+  }
+
+  async deleteBankRule(id: string) {
+    const d = await this.load();
+    d.bankRules = d.bankRules.filter((r) => r.id !== id);
+    for (const t of d.bankTxns) if (t.ruleId === id) t.ruleId = undefined;
+    await this.save(d);
+  }
+
+  async setReconNote(month: MonthKey, topic: ReconNote["topic"], note: string) {
+    const d = await this.load();
+    d.reconNotes = d.reconNotes.filter((n) => !(n.month === month && n.topic === topic));
+    if (note.trim()) d.reconNotes.push({ month, topic, note: note.trim() });
+    await this.save(d);
+  }
 }
+
+/** The JSON file also keeps the import history, which is not part of LedgerData. */
+type StoredData = LedgerData & { imports: ImportBatch[] };
 
 let store: LedgerStore | undefined;
 export function getStore(): LedgerStore {

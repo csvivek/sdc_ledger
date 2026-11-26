@@ -6,6 +6,11 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { createClient } from "../supabase/server";
 import type {
   BankDeposit,
+  BankRule,
+  BankTxn,
+  ImportBatch,
+  PjReceipt,
+  ReconNote,
   CardPayment,
   ClinicId,
   Expense,
@@ -18,7 +23,7 @@ import type {
   ReconReason,
   User,
 } from "../types";
-import type { FormOptions, LedgerStore } from "./store";
+import type { FormOptions, ImportMeta, ImportResult, LedgerStore } from "./store";
 
 type Row = Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
 
@@ -46,6 +51,63 @@ export const toExpense = (r: Row): Expense => ({
   enteredAt: r.entered_at,
 });
 
+/** Supabase returns at most 1000 rows per request, so read big tables page by page. */
+async function selectAll(sb: SupabaseClient, table: string, order: string): Promise<{ data: Row[] | null; error: { message: string } | null }> {
+  const all: Row[] = [];
+  for (let from = 0; ; from += 1000) {
+    const { data, error } = await sb.from(table).select("*").order(order).order("id").range(from, from + 999);
+    if (error) return { data: null, error };
+    all.push(...(data ?? []));
+    if (!data || data.length < 1000) return { data: all, error: null };
+  }
+}
+
+const toBankTxn = (r: Row): BankTxn => ({
+  id: r.id,
+  date: r.txn_date,
+  narration: r.narration,
+  refNo: r.ref_no ?? "",
+  valueDate: r.value_date ?? r.txn_date,
+  withdrawal: Number(r.withdrawal),
+  deposit: Number(r.deposit),
+  balance: Number(r.closing_balance),
+  kind: r.kind,
+  category: r.category ?? undefined,
+  clinic: r.clinic ?? undefined,
+  ruleId: r.rule_id ?? undefined,
+  fingerprint: r.fingerprint,
+});
+
+const toBankRule = (r: Row): BankRule => ({
+  id: r.id,
+  pattern: r.pattern,
+  matchType: r.match_type,
+  action: r.action,
+  category: r.category ?? undefined,
+  clinic: r.clinic ?? undefined,
+  priority: r.priority,
+});
+
+const toReceipt = (r: Row): PjReceipt => ({
+  id: r.id,
+  clinic: r.clinic,
+  date: r.receipt_date,
+  patientName: r.patient_name,
+  patientId: r.patient_id,
+  receiptNo: r.receipt_no,
+  invoiceNo: r.invoice_no,
+  invoiceTotal: Number(r.invoice_total),
+  amount: Number(r.amount),
+  mode: r.mode,
+  paymentInfo: r.payment_info,
+  receiptBy: r.receipt_by,
+});
+
+const span = (dates: string[]) => {
+  const s = [...dates].sort();
+  return { first_date: s[0] ?? null, last_date: s[s.length - 1] ?? null };
+};
+
 export const toPayee = (r: Row): Payee => ({
   id: r.id,
   kind: r.kind,
@@ -65,7 +127,7 @@ export class SupabaseLedgerStore implements LedgerStore {
 
   async read(): Promise<LedgerData> {
     const sb = await this.client();
-    const [profiles, clinics, categories, payees, expenses, transfers, pj, deposits, reasons, cards] = await Promise.all([
+    const [profiles, clinics, categories, payees, expenses, transfers, pj, deposits, reasons, cards, txns, rules, receipts, notes] = await Promise.all([
       sb.from("profiles").select("*"),
       sb.from("clinics").select("*"),
       sb.from("categories").select("*").eq("active", true).order("sort_order"),
@@ -76,6 +138,10 @@ export class SupabaseLedgerStore implements LedgerStore {
       sb.from("bank_deposits").select("*"),
       sb.from("recon_reasons").select("*"),
       sb.from("card_payments").select("*"),
+      selectAll(sb, "bank_transactions", "txn_date"),
+      sb.from("bank_rules").select("*").order("priority"),
+      selectAll(sb, "pappyjoe_receipts", "receipt_date"),
+      sb.from("recon_notes").select("*"),
     ]);
 
     const cats = rows(categories, (r) => r);
@@ -129,6 +195,10 @@ export class SupabaseLedgerStore implements LedgerStore {
         amount: Number(r.amount),
         creditedOn: r.credited_on ?? undefined,
       })),
+      bankTxns: rows(txns, toBankTxn),
+      bankRules: rows(rules, toBankRule),
+      pjReceipts: rows(receipts, toReceipt),
+      reconNotes: rows(notes, (r): ReconNote => ({ month: r.month, topic: r.topic, note: r.note })),
     };
   }
 
@@ -233,5 +303,162 @@ export class SupabaseLedgerStore implements LedgerStore {
 
   async reset() {
     throw new Error("Reset is only available with fake data.");
+  }
+
+  private async addBatch(sb: SupabaseClient, b: Row): Promise<string> {
+    const { data, error } = await sb.from("import_batches").insert(b).select("id").single();
+    if (error) throw new Error(error.message);
+    return data.id;
+  }
+
+  private async setBatchAdded(sb: SupabaseClient, id: string, added: number) {
+    const { error } = await sb.from("import_batches").update({ rows_added: added }).eq("id", id);
+    if (error) throw new Error(error.message);
+  }
+
+  async importBank(txns: Omit<BankTxn, "id">[], meta: ImportMeta): Promise<ImportResult> {
+    const sb = await this.client();
+    const batchId = await this.addBatch(sb, {
+      source: "HDFC",
+      file_name: meta.fileName,
+      rows_read: txns.length,
+      imported_by: meta.importedBy,
+      ...span(txns.map((t) => t.date)),
+    });
+    let added = 0;
+    for (let i = 0; i < txns.length; i += 500) {
+      const chunk = txns.slice(i, i + 500).map((t) => ({
+        batch_id: batchId,
+        txn_date: t.date,
+        narration: t.narration,
+        ref_no: t.refNo,
+        value_date: t.valueDate,
+        withdrawal: t.withdrawal,
+        deposit: t.deposit,
+        closing_balance: t.balance,
+        kind: t.kind,
+        category: t.category ?? null,
+        clinic: t.clinic ?? null,
+        rule_id: t.ruleId ?? null,
+        fingerprint: t.fingerprint,
+      }));
+      const { data, error } = await sb
+        .from("bank_transactions")
+        .upsert(chunk, { onConflict: "fingerprint", ignoreDuplicates: true })
+        .select("id");
+      if (error) throw new Error(error.message);
+      added += data?.length ?? 0;
+    }
+    await this.setBatchAdded(sb, batchId, added);
+    return { read: txns.length, added, skipped: txns.length - added };
+  }
+
+  async importPappyJoe(clinic: ClinicId, receipts: Omit<PjReceipt, "id" | "clinic">[], meta: ImportMeta): Promise<ImportResult> {
+    const sb = await this.client();
+    const batchId = await this.addBatch(sb, {
+      source: "PAPPYJOE",
+      clinic,
+      file_name: meta.fileName,
+      rows_read: receipts.length,
+      imported_by: meta.importedBy,
+      ...span(receipts.map((r) => r.date)),
+    });
+    const inserted: Row[] = [];
+    for (let i = 0; i < receipts.length; i += 500) {
+      const chunk = receipts.slice(i, i + 500).map((r) => ({
+        batch_id: batchId,
+        clinic,
+        receipt_date: r.date,
+        patient_name: r.patientName,
+        patient_id: r.patientId,
+        receipt_no: r.receiptNo,
+        invoice_no: r.invoiceNo,
+        invoice_total: r.invoiceTotal,
+        amount: r.amount,
+        mode: r.mode,
+        payment_info: r.paymentInfo,
+        receipt_by: r.receiptBy,
+      }));
+      const { data, error } = await sb
+        .from("pappyjoe_receipts")
+        .upsert(chunk, { onConflict: "clinic,receipt_no", ignoreDuplicates: true })
+        .select("*");
+      if (error) throw new Error(error.message);
+      inserted.push(...(data ?? []));
+    }
+    const cards = inserted
+      .filter((r) => r.mode === "CARD" && Number(r.amount) > 0)
+      .map((r) => ({
+        date: r.receipt_date,
+        clinic,
+        patient_ref: `${r.patient_name} · receipt ${r.receipt_no}`,
+        amount: Number(r.amount),
+        pappyjoe_receipt_id: r.id,
+      }));
+    if (cards.length) {
+      const { error } = await sb.from("card_payments").insert(cards);
+      if (error) throw new Error(error.message);
+    }
+    await this.setBatchAdded(sb, batchId, inserted.length);
+    return { read: receipts.length, added: inserted.length, skipped: receipts.length - inserted.length, cardsAdded: cards.length };
+  }
+
+  async listImports(limit: number): Promise<ImportBatch[]> {
+    const sb = await this.client();
+    const res = await sb.from("import_batches").select("*").order("imported_at", { ascending: false }).limit(limit);
+    return rows(res, (r) => ({
+      id: r.id,
+      source: r.source,
+      clinic: r.clinic ?? undefined,
+      fileName: r.file_name,
+      firstDate: r.first_date ?? undefined,
+      lastDate: r.last_date ?? undefined,
+      rowsRead: r.rows_read,
+      rowsAdded: r.rows_added,
+      importedAt: r.imported_at,
+    }));
+  }
+
+  async updateBankTxn(id: string, patch: Pick<BankTxn, "kind" | "category" | "clinic" | "ruleId">) {
+    const sb = await this.client();
+    const { error } = await sb
+      .from("bank_transactions")
+      .update({ kind: patch.kind, category: patch.category ?? null, clinic: patch.clinic ?? null, rule_id: patch.ruleId ?? null })
+      .eq("id", id);
+    if (error) throw new Error(error.message);
+  }
+
+  async addBankRule(rule: Omit<BankRule, "id">, createdBy: string): Promise<BankRule> {
+    const sb = await this.client();
+    const { data, error } = await sb
+      .from("bank_rules")
+      .insert({
+        pattern: rule.pattern,
+        match_type: rule.matchType,
+        action: rule.action,
+        category: rule.category ?? null,
+        clinic: rule.clinic ?? null,
+        priority: rule.priority,
+        created_by: createdBy,
+      })
+      .select()
+      .single();
+    if (error) throw new Error(error.message);
+    return toBankRule(data);
+  }
+
+  async deleteBankRule(id: string) {
+    const sb = await this.client();
+    const { error } = await sb.from("bank_rules").delete().eq("id", id);
+    if (error) throw new Error(error.message);
+  }
+
+  async setReconNote(month: MonthKey, topic: ReconNote["topic"], note: string) {
+    const sb = await this.client();
+    const text = note.trim();
+    const { error } = text
+      ? await sb.from("recon_notes").upsert({ month, topic, note: text, updated_at: new Date().toISOString() }, { onConflict: "month,topic" })
+      : await sb.from("recon_notes").delete().eq("month", month).eq("topic", topic);
+    if (error) throw new Error(error.message);
   }
 }

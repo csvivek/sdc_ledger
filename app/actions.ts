@@ -137,15 +137,6 @@ export async function togglePayeeActive(formData: FormData) {
   revalidatePath("/payees");
 }
 
-export async function saveReconReason(formData: FormData) {
-  await requireAdmin();
-  const month = String(formData.get("month") ?? "");
-  const clinic = String(formData.get("clinic") ?? "") as ClinicId;
-  const reason = String(formData.get("reason") ?? "");
-  await getStore().setReconReason(month, clinic, reason);
-  revalidatePath("/reconciliation");
-}
-
 export async function toggleCardCredited(formData: FormData) {
   await requireAdmin();
   const id = String(formData.get("id") ?? "");
