@@ -56,7 +56,13 @@ export async function addExpense(_prev: ExpenseFormState, formData: FormData): P
   const invoiceNo = String(formData.get("invoiceNo") ?? "").trim();
   const inPappyJoe = String(formData.get("inPappyJoe") ?? "") as InPappyJoe;
 
-  const d = await getStore().formOptions();
+  let d: Awaited<ReturnType<ReturnType<typeof getStore>["formOptions"]>>;
+  try {
+    d = await getStore().formOptions();
+  } catch (err) {
+    console.error("addExpense: could not load form options", err);
+    return { error: "Could not save. Please try again." };
+  }
   if (!(amount > 0)) return { error: "Enter an amount above zero." };
   if (!d.categories.includes(category)) return { error: "Pick a category." };
   if (!["SDC1", "SDC2", "SHARED"].includes(clinic)) return { error: "Pick a clinic." };

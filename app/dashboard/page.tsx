@@ -1,6 +1,6 @@
 import { requireAdmin } from "@/lib/auth";
 import { getStore } from "@/lib/data/store";
-import { expensesByCategory, inr, monthLabel, monthsIn, pnl, SHARED_SPLIT } from "@/lib/calc";
+import { cardDaysOverdue, expensesByCategory, inr, monthLabel, monthsIn, pnl, SHARED_SPLIT, todayInIndia } from "@/lib/calc";
 import { CLINIC_LABEL } from "@/lib/types";
 import { MonthPicker, pickMonth } from "@/components/MonthPicker";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
@@ -21,7 +21,10 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   const month = pickMonth(months, (await searchParams).month);
   const cats = expensesByCategory(d, month);
   const maxCat = Math.max(1, ...cats.map(([, v]) => v));
-  const pendingCard = d.cardPayments.filter((c) => !c.creditedOn).reduce((s, c) => s + c.amount, 0);
+  const pendingCards = d.cardPayments.filter((c) => !c.creditedOn);
+  const pendingCard = pendingCards.reduce((s, c) => s + c.amount, 0);
+  const today = todayInIndia();
+  const overdueCard = pendingCards.filter((c) => cardDaysOverdue(c.date, today) > 0).reduce((s, c) => s + c.amount, 0);
 
   return (
     <>
@@ -44,7 +47,8 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
       </div>
       {pendingCard > 0 && (
         <p className="mock-note">
-          {inr(pendingCard)} of card income is still with the doctor. <a href="/card-income">See card income</a>
+          {inr(pendingCard)} of card income is still with the doctor
+          {overdueCard > 0 ? `, and ${inr(overdueCard)} of it is overdue from earlier months` : ""}. <a href="/card-income">See card income</a>
         </p>
       )}
       <p className="muted">
