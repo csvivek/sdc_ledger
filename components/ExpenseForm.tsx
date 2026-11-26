@@ -88,6 +88,22 @@ function Segmented({
   );
 }
 
+/**
+ * Calls the server and turns any failure (lost connection, server crash) into an
+ * error message, so the form stays on screen with everything typed still in it.
+ * A redirect (for example an expired login) is passed on so Next.js can follow it.
+ */
+async function saveExpense(prev: ExpenseFormState, fd: FormData): Promise<ExpenseFormState> {
+  try {
+    return await addExpense(prev, fd);
+  } catch (err) {
+    const digest = (err as { digest?: unknown } | null)?.digest;
+    if (typeof digest === "string" && digest.startsWith("NEXT_")) throw err;
+    console.error("Saving the expense failed", err);
+    return { error: "Could not save. Check the connection and try again. Nothing you typed was lost." };
+  }
+}
+
 export function ExpenseForm({
   categories,
   categoryPayeeKind,
@@ -103,7 +119,7 @@ export function ExpenseForm({
   defaultClinic?: ClinicId;
   today: string;
 }) {
-  const [state, action, pending] = useActionState<ExpenseFormState, FormData>(addExpense, {});
+  const [state, action, pending] = useActionState<ExpenseFormState, FormData>(saveExpense, {});
   const [amount, setAmount] = useState("");
   const [category, setCategory] = useState("");
   const [payeeChoice, setPayeeChoice] = useState("");
@@ -134,6 +150,7 @@ export function ExpenseForm({
   }, []);
 
   // After a successful save, clear what changes per bill and keep the rest for the next one.
+  // After an error, keep every answer as typed so it can be saved again.
   useEffect(() => {
     if (state === lastState.current) return;
     lastState.current = state;

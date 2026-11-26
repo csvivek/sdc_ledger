@@ -120,3 +120,23 @@ export function pettyCash(d: LedgerData, clinic: ClinicId) {
   const opening = d.pettyCashOpening[clinic];
   return { opening, totalIn, totalOut, balance: opening + totalIn - totalOut, transfersIn, spent };
 }
+
+/** Today's date in India (YYYY-MM-DD). The server runs in UTC, the clinics in IST. */
+export function todayInIndia(now = new Date()): string {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata" }).format(now);
+}
+
+const dayMs = 86400000;
+const utcDay = (iso: string) => Date.UTC(+iso.slice(0, 4), +iso.slice(5, 7) - 1, +iso.slice(8, 10));
+
+/** Last day of the payment's month (YYYY-MM-DD): card income must be in the clinic account by then. */
+export function cardDueDate(paymentDate: string): string {
+  const y = +paymentDate.slice(0, 4);
+  const m = +paymentDate.slice(5, 7);
+  return new Date(Date.UTC(y, m, 0)).toISOString().slice(0, 10);
+}
+
+/** Days past the due date (positive = overdue), or days left until it (negative or zero). */
+export function cardDaysOverdue(paymentDate: string, today: string): number {
+  return Math.round((utcDay(today) - utcDay(cardDueDate(paymentDate))) / dayMs);
+}
