@@ -29,7 +29,7 @@ function Note({ month, topic, notes }: { month: string; topic: ReconNote["topic"
     <form action={saveReconNote} className="recon-form">
       <input type="hidden" name="month" value={month} />
       <input type="hidden" name="topic" value={topic} />
-      <input name="note" defaultValue={current} placeholder="Your explanation for this month (optional)" aria-label="Explanation" />
+      <input name="note" defaultValue={current} placeholder="Explanation (optional)" aria-label="Explanation" />
       <button type="submit" className="small">Save</button>
     </form>
   );
@@ -104,15 +104,15 @@ export default async function ReconciliationPage({ searchParams }: { searchParam
           <>
             <strong>In PappyJoe as UPI, not found in bank ({inr(sum(r.upi.pjOnly, (x) => x.amount))})</strong>
             <div className="table-wrap">
-              <table>
+              <table className="stack">
                 <tbody>
                   {r.upi.pjOnly.map((x) => (
                     <tr key={x.id}>
-                      <td>{x.date}</td>
-                      <td>{x.clinic}</td>
-                      <td>{x.patientName} · receipt {x.receiptNo}</td>
-                      <td className="num">{inr(x.amount)}</td>
-                      <td className="wrap muted">{hintForPjUpi(d, x)}</td>
+                      <td data-label="Date">{x.date}</td>
+                      <td data-label="Clinic">{x.clinic}</td>
+                      <td data-label="Patient" className="wrap">{x.patientName} · receipt {x.receiptNo}</td>
+                      <td data-label="Amount" className="num strong">{inr(x.amount)}</td>
+                      <td data-label="Hint" className="wrap muted">{hintForPjUpi(d, x)}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -124,14 +124,14 @@ export default async function ReconciliationPage({ searchParams }: { searchParam
           <>
             <strong>In bank as UPI, not found in PappyJoe ({inr(sum(r.upi.bankOnly, (t) => t.deposit))})</strong>
             <div className="table-wrap">
-              <table>
+              <table className="stack">
                 <tbody>
                   {r.upi.bankOnly.map((t) => (
                     <tr key={t.id}>
-                      <td>{t.date}</td>
-                      <td>{counterparty(t.narration).name}</td>
-                      <td className="num">{inr(t.deposit)}</td>
-                      <td className="wrap muted">{hintForBankUpi(d, t)}</td>
+                      <td data-label="Date">{t.date}</td>
+                      <td data-label="From" className="wrap">{counterparty(t.narration).name}</td>
+                      <td data-label="Amount" className="num strong">{inr(t.deposit)}</td>
+                      <td data-label="Hint" className="wrap muted">{hintForBankUpi(d, t)}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -176,7 +176,7 @@ export default async function ReconciliationPage({ searchParams }: { searchParam
       <h2>Petty cash</h2>
       <div className="card">
         <div className="table-wrap">
-          <table>
+          <table className="stack">
             <thead>
               <tr>
                 <th></th>
@@ -191,11 +191,11 @@ export default async function ReconciliationPage({ searchParams }: { searchParam
                 const p = r.petty[c];
                 return (
                   <tr key={c}>
-                    <td>{CLINIC_LABEL[c]}</td>
-                    <td className="num">{inr(p.opening)}</td>
-                    <td className="num">{inr(p.received)}</td>
-                    <td className="num">{inr(p.spent)}</td>
-                    <td className={`num ${p.closing < 0 ? "neg" : ""}`}>{inr(p.closing)}</td>
+                    <td className="row-title">{CLINIC_LABEL[c]}</td>
+                    <td data-label="Start of month" className="num">{inr(p.opening)}</td>
+                    <td data-label="Received" className="num">{inr(p.received)}</td>
+                    <td data-label="Spent" className="num">{inr(p.spent)}</td>
+                    <td data-label="End of month" className={`num ${p.closing < 0 ? "neg" : ""}`}>{inr(p.closing)}</td>
                   </tr>
                 );
               })}
@@ -262,7 +262,7 @@ export default async function ReconciliationPage({ searchParams }: { searchParam
           <>
             <strong>Entered in the portal as paid by bank/UPI, not found in the bank</strong>
             <div className="table-wrap">
-              <table>
+              <table className="stack">
                 <thead>
                   <tr>
                     <th>Date</th>
@@ -277,13 +277,13 @@ export default async function ReconciliationPage({ searchParams }: { searchParam
                 <tbody>
                   {r.expenses.portalOnly.map((e) => (
                     <tr key={e.id}>
-                      <td>{e.date}</td>
-                      <td>{e.category}</td>
-                      <td>{(e.payeeId && payees.get(e.payeeId)) || e.note || "—"}</td>
-                      <td>{PAID_BY_LABEL[e.paidBy]}</td>
-                      <td>{e.inPappyJoe ? IN_PAPPYJOE_LABEL[e.inPappyJoe] : "—"}</td>
-                      <td>{users.get(e.enteredBy) ?? ""}</td>
-                      <td className="num">{inr(e.amount)}</td>
+                      <td data-label="Date">{e.date}</td>
+                      <td data-label="Category">{e.category}</td>
+                      <td data-label="Paid to" className="wrap">{(e.payeeId && payees.get(e.payeeId)) || e.note || "—"}</td>
+                      <td data-label="Paid by">{PAID_BY_LABEL[e.paidBy]}</td>
+                      <td data-label="In PappyJoe?">{e.inPappyJoe ? IN_PAPPYJOE_LABEL[e.inPappyJoe] : "—"}</td>
+                      <td data-label="Entered by">{users.get(e.enteredBy) ?? ""}</td>
+                      <td data-label="Amount" className="num strong">{inr(e.amount)}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -296,7 +296,7 @@ export default async function ReconciliationPage({ searchParams }: { searchParam
         <details>
           <summary>Only in the bank, categorised automatically ({r.expenses.bankOnly.length}, {inr(sum(r.expenses.bankOnly, (t) => t.withdrawal))})</summary>
           <div className="table-wrap">
-            <table>
+            <table className="stack">
               <thead>
                 <tr>
                   <th>Date</th>
@@ -312,15 +312,15 @@ export default async function ReconciliationPage({ searchParams }: { searchParam
                   const cp = counterparty(t.narration);
                   return (
                     <tr key={t.id}>
-                      <td>{t.date}</td>
-                      <td className="wrap">
+                      <td data-label="Date">{t.date}</td>
+                      <td data-label="Paid to" className="wrap">
                         {cp.name}
                         {cp.remark ? <span className="muted"> · {cp.remark}</span> : null}
                       </td>
-                      <td>{t.category}</td>
-                      <td>{t.clinic ? CLINIC_LABEL[t.clinic] : ""}</td>
-                      <td className="num">{inr(t.withdrawal)}</td>
-                      <td>
+                      <td data-label="Category">{t.category}</td>
+                      <td data-label="Clinic">{t.clinic ? CLINIC_LABEL[t.clinic] : ""}</td>
+                      <td data-label="Amount" className="num strong">{inr(t.withdrawal)}</td>
+                      <td className="actions">
                         <details>
                           <summary className="muted">Change</summary>
                           <DebitForm txn={t} categories={d.categories} compact />
@@ -338,7 +338,7 @@ export default async function ReconciliationPage({ searchParams }: { searchParam
           <details>
             <summary>Matched ({r.expenses.matched.length})</summary>
             <div className="table-wrap">
-              <table>
+              <table className="stack">
                 <thead>
                   <tr>
                     <th>Portal date</th>
@@ -352,12 +352,12 @@ export default async function ReconciliationPage({ searchParams }: { searchParam
                 <tbody>
                   {r.expenses.matched.map(({ expense: e, txn: t }) => (
                     <tr key={e.id}>
-                      <td>{e.date}</td>
-                      <td>{t.date}</td>
-                      <td>{e.category}</td>
-                      <td className="wrap">{counterparty(t.narration).name}</td>
-                      <td>{e.inPappyJoe ? IN_PAPPYJOE_LABEL[e.inPappyJoe] : "—"}</td>
-                      <td className="num">{inr(e.amount)}</td>
+                      <td data-label="Portal date">{e.date}</td>
+                      <td data-label="Bank date">{t.date}</td>
+                      <td data-label="Category">{e.category}</td>
+                      <td data-label="Bank says" className="wrap">{counterparty(t.narration).name}</td>
+                      <td data-label="In PappyJoe?">{e.inPappyJoe ? IN_PAPPYJOE_LABEL[e.inPappyJoe] : "—"}</td>
+                      <td data-label="Amount" className="num strong">{inr(e.amount)}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -387,18 +387,18 @@ export default async function ReconciliationPage({ searchParams }: { searchParam
               invoice, for example a payment first saved as cash and then corrected to UPI.
             </p>
             <div className="table-wrap">
-              <table>
+              <table className="stack">
                 <tbody>
                   {r.reversals.map((x) => {
                     const same = d.pjReceipts.filter((y) => y.clinic === x.clinic && y.invoiceNo === x.invoiceNo && y.id !== x.id && x.invoiceNo);
                     return (
                       <tr key={x.id}>
-                        <td>{x.date}</td>
-                        <td>{x.clinic}</td>
-                        <td>{x.patientName} · receipt {x.receiptNo} · invoice {x.invoiceNo}</td>
-                        <td>{x.paymentInfo}</td>
-                        <td className="num neg">{inr(x.amount)}</td>
-                        <td className="wrap muted">
+                        <td data-label="Date">{x.date}</td>
+                        <td data-label="Clinic">{x.clinic}</td>
+                        <td data-label="Patient" className="wrap">{x.patientName} · receipt {x.receiptNo} · invoice {x.invoiceNo}</td>
+                        <td data-label="Payment">{x.paymentInfo}</td>
+                        <td data-label="Amount" className="num neg strong">{inr(x.amount)}</td>
+                        <td data-label="Same invoice" className="wrap muted">
                           {same.length
                             ? `Same invoice: ${same.map((y) => `${inr(y.amount)} ${y.paymentInfo} (receipt ${y.receiptNo})`).join(", ")}`
                             : "No other line on this invoice"}

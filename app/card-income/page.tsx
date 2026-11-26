@@ -38,7 +38,7 @@ export default async function CardIncomePage() {
 
       <h2>Pending</h2>
       <div className="table-wrap">
-        <table>
+        <table className="stack">
           <thead>
             <tr>
               <th>Date</th>
@@ -56,11 +56,11 @@ export default async function CardIncomePage() {
             )}
             {pending.map((c) => (
               <tr key={c.id}>
-                <td>{c.date}</td>
-                <td>{CLINIC_LABEL[c.clinic]}</td>
-                <td>{c.patientRef}</td>
-                <td className="num">{inr(c.amount)}</td>
-                <td>
+                <td data-label="Date">{c.date}</td>
+                <td data-label="Clinic">{CLINIC_LABEL[c.clinic]}</td>
+                <td data-label="Patient ref">{c.patientRef}</td>
+                <td data-label="Amount" className="num strong">{inr(c.amount)}</td>
+                <td className="actions">
                   <form action={toggleCardCredited}>
                     <input type="hidden" name="id" value={c.id} />
                     <input type="hidden" name="credited" value="1" />
@@ -75,7 +75,7 @@ export default async function CardIncomePage() {
 
       <h2>Credited to the clinic account</h2>
       <div className="table-wrap">
-        <table>
+        <table className="stack">
           <thead>
             <tr>
               <th>Date</th>
@@ -87,14 +87,19 @@ export default async function CardIncomePage() {
             </tr>
           </thead>
           <tbody>
+            {done.length === 0 && (
+              <tr>
+                <td colSpan={6} className="muted">Nothing credited yet.</td>
+              </tr>
+            )}
             {done.map((c) => (
               <tr key={c.id}>
-                <td>{c.date}</td>
-                <td>{CLINIC_LABEL[c.clinic]}</td>
-                <td>{c.patientRef}</td>
-                <td className="num">{inr(c.amount)}</td>
-                <td>{c.creditedOn}</td>
-                <td>
+                <td data-label="Date">{c.date}</td>
+                <td data-label="Clinic">{CLINIC_LABEL[c.clinic]}</td>
+                <td data-label="Patient ref">{c.patientRef}</td>
+                <td data-label="Amount" className="num strong">{inr(c.amount)}</td>
+                <td data-label="Credited on">{c.creditedOn}</td>
+                <td className="actions">
                   <form action={toggleCardCredited}>
                     <input type="hidden" name="id" value={c.id} />
                     <input type="hidden" name="credited" value="0" />

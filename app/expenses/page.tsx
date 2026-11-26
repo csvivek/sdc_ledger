@@ -19,7 +19,7 @@ export default async function ExpensesPage() {
   return (
     <>
       <h1>Add expense</h1>
-      <div className="card" style={{ maxWidth: 520 }}>
+      <div className="card form-card">
         <ExpenseForm
           categories={d.categories}
           categoryPayeeKind={d.categoryPayeeKind}
@@ -32,7 +32,7 @@ export default async function ExpensesPage() {
 
       <h2>{user.role === "admin" ? "Latest entries" : "Your latest entries"}</h2>
       <div className="table-wrap">
-        <table>
+        <table className="stack">
           <thead>
             <tr>
               <th>Date</th>
@@ -48,21 +48,26 @@ export default async function ExpensesPage() {
             </tr>
           </thead>
           <tbody>
+            {mine.length === 0 && (
+              <tr>
+                <td colSpan={10} className="muted">Nothing entered yet.</td>
+              </tr>
+            )}
             {mine.map((e) => (
               <tr key={e.id}>
-                <td>{e.date}</td>
-                <td className="num">{inr(e.amount)}</td>
-                <td>{e.category}</td>
-                <td>{e.payeeId ? (payeeNames[e.payeeId] ?? "") : ""}</td>
-                <td>{e.invoiceNo ?? ""}</td>
-                <td>{e.inPappyJoe ? IN_PAPPYJOE_LABEL[e.inPappyJoe] : <span className="muted">not asked</span>}</td>
-                <td>{CLINIC_LABEL[e.clinic]}</td>
-                <td>
+                <td data-label="Date">{e.date}</td>
+                <td data-label="Amount" className="num strong">{inr(e.amount)}</td>
+                <td data-label="Category">{e.category}</td>
+                <td data-label="Paid to">{e.payeeId ? (payeeNames[e.payeeId] ?? "") : ""}</td>
+                <td data-label="Invoice no.">{e.invoiceNo ?? ""}</td>
+                <td data-label="In PappyJoe?">{e.inPappyJoe ? IN_PAPPYJOE_LABEL[e.inPappyJoe] : <span className="muted">not asked</span>}</td>
+                <td data-label="Clinic">{CLINIC_LABEL[e.clinic]}</td>
+                <td data-label="Paid by">
                   {PAID_BY_LABEL[e.paidBy]}
                   {e.paidBy === "PETTY_CASH" && e.clinic === "SHARED" && e.pettyCashClinic ? ` (${CLINIC_LABEL[e.pettyCashClinic].slice(0, 5)})` : ""}
                 </td>
-                <td>{e.note}</td>
-                {user.role === "admin" && <td>{names[e.enteredBy] ?? e.enteredBy}</td>}
+                <td data-label="Note" className="wrap">{e.note}</td>
+                {user.role === "admin" && <td data-label="Entered by">{names[e.enteredBy] ?? e.enteredBy}</td>}
               </tr>
             ))}
           </tbody>

@@ -1,5 +1,5 @@
 import type { Metadata, Viewport } from "next";
-import Link from "next/link";
+import { Nav } from "@/components/Nav";
 import { currentUser } from "@/lib/auth";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
 import { logout } from "./actions";
@@ -10,9 +10,9 @@ export const metadata: Metadata = {
   description: "Expense and income tracking for Sarada Dental Care.",
 };
 
-export const viewport: Viewport = { width: "device-width", initialScale: 1 };
+export const viewport: Viewport = { width: "device-width", initialScale: 1, themeColor: "#0f6e7a" };
 
-const ADMIN_NAV = [
+const ADMIN_NAV: [string, string][] = [
   ["/dashboard", "Dashboard"],
   ["/expenses", "Add expense"],
   ["/petty-cash", "Petty cash"],
@@ -31,23 +31,17 @@ export default async function RootLayout({ children }: { children: React.ReactNo
           <div className="mock-banner">Prototype · all data is fake · not connected to PappyJoe, HDFC or Supabase</div>
         )}
         <header className="top">
-          <strong>SDC Ledger</strong>
+          <strong className="brand">
+            <span className="brand-mark" aria-hidden="true">SDC</span> Ledger
+          </strong>
           {user && (
             <form action={logout} className="who">
-              <span>{user.name}</span>
+              <span className="who-name">{user.name}</span>
               <button type="submit" className="link">Log out</button>
             </form>
           )}
         </header>
-        {user?.role === "admin" && (
-          <nav className="nav">
-            {ADMIN_NAV.map(([href, label]) => (
-              <Link key={href} href={href}>
-                {label}
-              </Link>
-            ))}
-          </nav>
-        )}
+        {user?.role === "admin" && <Nav items={ADMIN_NAV} />}
         <main>{children}</main>
       </body>
     </html>
