@@ -20,7 +20,7 @@ export default async function PayeesPage() {
         expense. Hidden names stay on old entries but are no longer offered.
       </p>
 
-      <div className="card" style={{ maxWidth: 520 }}>
+      <div className="card form-card">
         <form action={addPayeeAdmin}>
           <label htmlFor="kind">Type</label>
           <select id="kind" name="kind" required defaultValue="staff">
@@ -40,7 +40,7 @@ export default async function PayeesPage() {
           <section key={k}>
             <h2>{HEADING[k]}</h2>
             <div className="table-wrap">
-              <table>
+              <table className="list">
                 <tbody>
                   {list.length === 0 && (
                     <tr>

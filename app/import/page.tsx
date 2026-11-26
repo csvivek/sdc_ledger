@@ -37,7 +37,7 @@ export default async function ImportPage() {
 
       <h2>Recent imports</h2>
       <div className="table-wrap">
-        <table>
+        <table className="stack">
           <thead>
             <tr>
               <th>When</th>
@@ -56,12 +56,12 @@ export default async function ImportPage() {
             )}
             {imports.map((b) => (
               <tr key={b.id}>
-                <td>{new Date(b.importedAt).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short", timeZone: "Asia/Kolkata" })}</td>
-                <td className="wrap">{b.fileName}</td>
-                <td>{b.source === "HDFC" ? "HDFC" : `PappyJoe · ${b.clinic ? CLINIC_LABEL[b.clinic] : ""}`}</td>
-                <td>{b.firstDate} to {b.lastDate}</td>
-                <td className="num">{b.rowsRead}</td>
-                <td className="num">{b.rowsAdded}</td>
+                <td data-label="When">{new Date(b.importedAt).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short", timeZone: "Asia/Kolkata" })}</td>
+                <td data-label="File" className="wrap">{b.fileName}</td>
+                <td data-label="Source">{b.source === "HDFC" ? "HDFC" : `PappyJoe · ${b.clinic ? CLINIC_LABEL[b.clinic] : ""}`}</td>
+                <td data-label="Dates">{b.firstDate} to {b.lastDate}</td>
+                <td data-label="Rows" className="num">{b.rowsRead}</td>
+                <td data-label="New" className="num">{b.rowsAdded}</td>
               </tr>
             ))}
           </tbody>
@@ -76,7 +76,7 @@ export default async function ImportPage() {
         <button type="submit" className="small secondary">Run the rules again on unanswered payments</button>
       </form>
       <div className="table-wrap">
-        <table>
+        <table className="stack">
           <thead>
             <tr>
               <th className="num">#</th>
@@ -91,17 +91,17 @@ export default async function ImportPage() {
               .sort((a, b) => a.priority - b.priority)
               .map((r) => (
                 <tr key={r.id}>
-                  <td className="num">{r.priority}</td>
-                  <td className="wrap">
+                  <td data-label="#" className="num">{r.priority}</td>
+                  <td data-label="Narration contains" className="wrap">
                     <code>{r.pattern}</code>
                     {r.matchType === "regex" && <span className="muted"> (pattern)</span>}
                   </td>
-                  <td>
+                  <td data-label="Means">
                     {r.action === "EXPENSE" ? r.category : BANK_KIND_LABEL[r.action]}
                     {r.clinic && r.clinic !== "SHARED" ? ` · ${CLINIC_LABEL[r.clinic]}` : ""}
                   </td>
-                  <td className="num">{used.get(r.id) ?? 0}</td>
-                  <td>
+                  <td data-label="Used" className="num">{used.get(r.id) ?? 0}</td>
+                  <td className="actions">
                     <form action={deleteRule}>
                       <input type="hidden" name="id" value={r.id} />
                       <button type="submit" className="small secondary">Delete</button>

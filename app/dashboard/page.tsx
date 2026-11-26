@@ -54,7 +54,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
 
       <h2>Monthly trend</h2>
       <div className="table-wrap">
-        <table>
+        <table className="stack">
           <thead>
             <tr>
               <th>Month</th>
@@ -72,17 +72,17 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
               const all = pnl(d, m, "ALL");
               return (
                 <tr key={m}>
-                  <td>{monthLabel(m)}</td>
-                  {SCOPES.map(([k]) => {
+                  <td className="row-title">{monthLabel(m)}</td>
+                  {SCOPES.map(([k, label]) => {
                     const p = pnl(d, m, k).profit;
                     return (
-                      <td key={k} className={`num ${p >= 0 ? "pos" : "neg"}`}>
+                      <td key={k} data-label={`${label.split(" · ")[0]} profit`} className={`num ${p >= 0 ? "pos" : "neg"}`}>
                         {inr(p)}
                       </td>
                     );
                   })}
-                  <td className="num">{inr(all.income)}</td>
-                  <td className="num">{inr(all.expenses)}</td>
+                  <td data-label="Combined income" className="num">{inr(all.income)}</td>
+                  <td data-label="Combined expenses" className="num">{inr(all.expenses)}</td>
                 </tr>
               );
             })}
@@ -94,9 +94,9 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
       <div className="card">
         {cats.map(([c, v]) => (
           <div key={c} className="bar-row">
-            <span>{c}</span>
-            <div className="bar" style={{ width: `${(v / maxCat) * 100}%` }} />
-            <span style={{ textAlign: "right" }}>{inr(v)}</span>
+            <span className="bar-label">{c}</span>
+            <div className="bar-track"><div className="bar" style={{ width: `${(v / maxCat) * 100}%` }} /></div>
+            <span className="bar-value">{inr(v)}</span>
           </div>
         ))}
       </div>

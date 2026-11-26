@@ -43,7 +43,7 @@ export default async function PettyCashPage() {
           <section key={c}>
             <h2>{CLINIC_LABEL[c]}: movements</h2>
             <div className="table-wrap">
-              <table>
+              <table className="stack">
                 <thead>
                   <tr>
                     <th>Date</th>
@@ -53,12 +53,17 @@ export default async function PettyCashPage() {
                   </tr>
                 </thead>
                 <tbody>
+                  {rows.length === 0 && (
+                    <tr>
+                      <td colSpan={4} className="muted">No movements yet.</td>
+                    </tr>
+                  )}
                   {rows.map((r) => (
                     <tr key={r.key}>
-                      <td>{r.date}</td>
-                      <td>{r.what}</td>
-                      <td className="num pos">{r.inAmt ? inr(r.inAmt) : ""}</td>
-                      <td className="num">{r.outAmt ? inr(r.outAmt) : ""}</td>
+                      <td data-label="Date">{r.date}</td>
+                      <td data-label="What" className="wrap">{r.what}</td>
+                      <td data-label="In (transfer)" className="num pos">{r.inAmt ? inr(r.inAmt) : ""}</td>
+                      <td data-label="Out (expense)" className="num">{r.outAmt ? inr(r.outAmt) : ""}</td>
                     </tr>
                   ))}
                 </tbody>
