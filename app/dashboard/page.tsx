@@ -3,6 +3,7 @@ import { getStore } from "@/lib/data/store";
 import { expensesByCategory, inr, monthLabel, monthsIn, pnl, SHARED_SPLIT } from "@/lib/calc";
 import { CLINIC_LABEL } from "@/lib/types";
 import { MonthPicker, pickMonth } from "@/components/MonthPicker";
+import { isSupabaseConfigured } from "@/lib/supabase/config";
 import { resetDemoData } from "../actions";
 
 export const dynamic = "force-dynamic";
@@ -100,10 +101,12 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
         ))}
       </div>
 
-      <form action={resetDemoData} style={{ marginTop: 24 }}>
-        <button type="submit" className="secondary small">Reset demo data</button>{" "}
-        <span className="muted">Puts the fake seed data back and removes anything entered.</span>
-      </form>
+      {!isSupabaseConfigured && (
+        <form action={resetDemoData} style={{ marginTop: 24 }}>
+          <button type="submit" className="secondary small">Reset demo data</button>{" "}
+          <span className="muted">Puts the fake seed data back and removes anything entered.</span>
+        </form>
+      )}
     </>
   );
 }

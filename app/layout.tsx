@@ -1,12 +1,13 @@
 import type { Metadata, Viewport } from "next";
 import Link from "next/link";
 import { currentUser } from "@/lib/auth";
+import { isSupabaseConfigured } from "@/lib/supabase/config";
 import { logout } from "./actions";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "SDC Ledger (prototype)",
-  description: "Expense and income tracking for Sarada Dental Care. Prototype with fake data.",
+  title: isSupabaseConfigured ? "SDC Ledger" : "SDC Ledger (prototype)",
+  description: "Expense and income tracking for Sarada Dental Care.",
 };
 
 export const viewport: Viewport = { width: "device-width", initialScale: 1 };
@@ -24,7 +25,9 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   return (
     <html lang="en">
       <body>
-        <div className="mock-banner">Prototype · all data is fake · not connected to PappyJoe, HDFC or Supabase</div>
+        {!isSupabaseConfigured && (
+          <div className="mock-banner">Prototype · all data is fake · not connected to PappyJoe, HDFC or Supabase</div>
+        )}
         <header className="top">
           <strong>SDC Ledger</strong>
           {user && (
