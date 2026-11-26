@@ -1,0 +1,78 @@
+"use client";
+
+import { useActionState, useState } from "react";
+import { addExpense, type ExpenseFormState } from "@/app/actions";
+import type { ClinicId } from "@/lib/types";
+
+export function ExpenseForm({ categories, defaultClinic, today }: { categories: string[]; defaultClinic?: ClinicId; today: string }) {
+  const [state, action, pending] = useActionState<ExpenseFormState, FormData>(addExpense, {});
+  const [clinic, setClinic] = useState<string>(defaultClinic ?? "SDC1");
+  const [paidBy, setPaidBy] = useState<string>("PETTY_CASH");
+
+  return (
+    <form action={action}>
+      <label htmlFor="amount">Amount (₹)</label>
+      <input id="amount" name="amount" type="number" inputMode="decimal" min="1" step="0.01" required placeholder="0" />
+
+      <label htmlFor="category">Category</label>
+      <select id="category" name="category" required defaultValue="">
+        <option value="" disabled>Choose…</option>
+        {categories.map((c) => (
+          <option key={c}>{c}</option>
+        ))}
+      </select>
+
+      <label>Clinic</label>
+      <div className="chips">
+        {[
+          ["SDC1", "SDC 1"],
+          ["SDC2", "SDC 2"],
+          ["SHARED", "Shared"],
+        ].map(([v, l]) => (
+          <label key={v}>
+            <input type="radio" name="clinic" value={v} checked={clinic === v} onChange={() => setClinic(v)} /> {l}
+          </label>
+        ))}
+      </div>
+
+      <label>Paid by</label>
+      <div className="chips">
+        {[
+          ["PETTY_CASH", "Petty cash"],
+          ["UPI", "UPI"],
+          ["BANK", "Bank"],
+        ].map(([v, l]) => (
+          <label key={v}>
+            <input type="radio" name="paidBy" value={v} checked={paidBy === v} onChange={() => setPaidBy(v)} /> {l}
+          </label>
+        ))}
+      </div>
+
+      {paidBy === "PETTY_CASH" && clinic === "SHARED" && (
+        <>
+          <label>Which petty cash box paid?</label>
+          <div className="chips">
+            <label><input type="radio" name="pettyCashClinic" value="SDC1" defaultChecked /> SDC 1</label>
+            <label><input type="radio" name="pettyCashClinic" value="SDC2" /> SDC 2</label>
+          </div>
+        </>
+      )}
+
+      <label htmlFor="date">Date</label>
+      <input id="date" name="date" type="date" defaultValue={today} required />
+
+      <label htmlFor="note">Note</label>
+      <input id="note" name="note" type="text" placeholder="What was it for?" />
+
+      <label className="muted" style={{ fontWeight: 400 }}>
+        Bill photo: not in the prototype yet
+      </label>
+
+      <button type="submit" className="full" disabled={pending}>
+        {pending ? "Saving…" : "Save expense"}
+      </button>
+      {state.ok && <p className="ok">{state.ok}</p>}
+      {state.error && <p className="err">{state.error}</p>}
+    </form>
+  );
+}

@@ -1,0 +1,7 @@
+node_modules/
+.next/
+next-env.d.ts
+*.tsbuildinfo
+.env*
+# Prototype runtime data (created from seed on first run)
+/data/
