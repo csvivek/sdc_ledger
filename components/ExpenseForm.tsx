@@ -29,11 +29,11 @@ const PAID_BY_OPTIONS = [
 const PAPPYJOE_OPTIONS = [
   ["YES", "Yes"],
   ["NO", "No"],
-  ["NA", "Not needed"],
+  ["NA", "Not applicable"],
 ] as const;
 
 // Remembered on this phone only, so the next entry starts with the same answers.
-const REMEMBER = { clinic: "sdc.expense.clinic", paidBy: "sdc.expense.paidBy", inPappyJoe: "sdc.expense.inPappyJoe" };
+const REMEMBER = { clinic: "sdc.expense.clinic", paidBy: "sdc.expense.paidBy" };
 
 function recall(key: string, allowed: readonly (readonly [string, string])[]): string | null {
   try {
@@ -112,7 +112,8 @@ export function ExpenseForm({
   const [clinic, setClinic] = useState<string>(defaultClinic ?? "SDC1");
   const [paidBy, setPaidBy] = useState<string>("PETTY_CASH");
   const [pettyBox, setPettyBox] = useState<string>(defaultClinic ?? "SDC1");
-  const [inPappyJoe, setInPappyJoe] = useState("");
+  // Starts as "Not applicable" on every new entry (Vivek, 2026-11-26); not remembered.
+  const [inPappyJoe, setInPappyJoe] = useState("NA");
   const [todayLocal, setTodayLocal] = useState(today);
   const [dateMode, setDateMode] = useState<"today" | "yesterday" | "other">("today");
   const [otherDate, setOtherDate] = useState(today);
@@ -127,8 +128,6 @@ export function ExpenseForm({
     if (c) setClinic(c);
     const p = recall(REMEMBER.paidBy, PAID_BY_OPTIONS);
     if (p) setPaidBy(p);
-    const j = recall(REMEMBER.inPappyJoe, PAPPYJOE_OPTIONS);
-    if (j) setInPappyJoe(j);
     const t = localDate();
     setTodayLocal(t);
     setOtherDate(t);
@@ -146,6 +145,7 @@ export function ExpenseForm({
     setInvoiceNo("");
     setNote("");
     setShowNote(false);
+    setInPappyJoe("NA");
     amountRef.current?.focus();
   }, [state]);
 
@@ -158,7 +158,6 @@ export function ExpenseForm({
     e.preventDefault();
     remember(REMEMBER.clinic, clinic);
     remember(REMEMBER.paidBy, paidBy);
-    if (inPappyJoe) remember(REMEMBER.inPappyJoe, inPappyJoe);
     const fd = new FormData(e.currentTarget);
     startTransition(() => action(fd));
   }
