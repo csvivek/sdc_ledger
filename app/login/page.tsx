@@ -1,3 +1,4 @@
+import Image from "next/image";
 import { redirect } from "next/navigation";
 import { currentUser } from "@/lib/auth";
 import { getStore } from "@/lib/data/store";
@@ -12,6 +13,7 @@ export default async function LoginPage() {
     if (await currentUser()) redirect("/");
     return (
       <div className="card" style={{ maxWidth: 420, margin: "24px auto" }}>
+        <Image src="/sdc-logo.png" alt="Sarada Dental Care" width={600} height={225} priority className="login-logo" />
         <h1>Log in</h1>
         <PasswordLoginForm />
         <p className="muted" style={{ marginTop: 16 }}>
@@ -24,6 +26,7 @@ export default async function LoginPage() {
   const d = await getStore().read();
   return (
     <div className="card" style={{ maxWidth: 420, margin: "24px auto" }}>
+      <Image src="/sdc-logo.png" alt="Sarada Dental Care" width={600} height={225} priority className="login-logo" />
       <h1>Log in</h1>
       <p className="mock-note">
         Mock login: pick a user. No password. Real logins switch on once Supabase is connected.
