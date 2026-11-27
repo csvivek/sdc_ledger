@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { analyticsRows, cardCost, cardCostShare, modeShare, parseQuote, previewAnalyticsRows, receiptMonths } from "@/lib/analytics";
 import { pappyJoeMonths } from "@/lib/calc";
-import { shouldShowCharts } from "@/lib/trend";
+import { PREVIEW_MONTHS, shouldShowCharts } from "@/lib/trend";
 import type { ClinicId, LedgerData, PayMode, PjReceipt } from "@/lib/types";
 
 let n = 0;
@@ -136,7 +136,7 @@ describe("previewAnalyticsRows", () => {
   it("is deterministic sample data with three rows per month that add up", () => {
     const a = previewAnalyticsRows("2026-11");
     expect(a).toEqual(previewAnalyticsRows("2026-11"));
-    expect(a).toHaveLength(36);
+    expect(a).toHaveLength(PREVIEW_MONTHS * 3);
     expect(a[a.length - 1].month).toBe("2026-11");
     for (let i = 0; i < a.length; i += 3) {
       const [s1, s2, all] = a.slice(i, i + 3);

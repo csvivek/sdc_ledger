@@ -360,7 +360,7 @@ table.list td:last-child { white-space: nowrap; }
 .chart-key.line { height: 4px; border-radius: 2px; width: 16px; }
 .chart-key-name { color: var(--muted); }
 .chart-key-value { font-weight: 600; font-variant-numeric: tabular-nums; }
-.chart-plot { width: 100%; overflow: hidden; touch-action: pan-y; border-radius: var(--radius-sm); }
+.chart-plot { width: 100%; overflow-x: auto; overflow-y: hidden; touch-action: pan-x pan-y; overscroll-behavior-x: contain; border-radius: var(--radius-sm); }
 .chart-plot:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
 .chart-plot svg { display: block; }
 .chart-plot .chart-gridline { stroke: var(--line); stroke-width: 1; }
@@ -547,3 +547,22 @@ code { word-break: break-all; }
 @media (min-width: 600px) { .quote-inputs { grid-template-columns: 1fr 1fr; } }
 .quote-inputs label { margin-top: 6px; }
 .mode-cell small { display: block; color: var(--muted); font-weight: 400; }
+
+/* Per-chart switches: 12 months / All, and vs last year */
+.chart-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; margin: 0 0 8px; }
+.chart-controls .view-toggle { margin: 0; }
+.view-toggle.small button { min-width: 0; min-height: 32px; padding: 4px 12px; font-size: 13px; }
+.view-toggle button:disabled { opacity: 0.45; cursor: not-allowed; background: none; }
+.yoy-switch { display: inline-flex; align-items: center; gap: 6px; margin: 0; font-size: 13px; font-weight: 600; cursor: pointer; min-height: 32px; }
+.yoy-switch input { width: 18px; height: 18px; margin: 0; accent-color: var(--brand); }
+.yoy-switch.off { color: var(--muted); cursor: not-allowed; }
+.chart-note { font-size: 13px; color: var(--muted); margin: -2px 0 6px; }
+.chart-yoy { color: var(--muted); font-size: 13px; font-variant-numeric: tabular-nums; }
+.chart-key.faded { background: var(--muted); opacity: 0.38; vertical-align: middle; }
+.chart-legend-yoy { font-size: 13px; }
+.chart-body { position: relative; }
+.chart-yaxis { position: absolute; left: 0; top: 0; pointer-events: none; }
+.chart-yaxis-bg { fill: var(--card); }
+.chart-yaxis .chart-axis { fill: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+.chart-readout li { flex-wrap: wrap; }
+.chart-yoy { flex-basis: 100%; padding-left: 18px; }

@@ -90,6 +90,7 @@ export function CardMachineCost({ rows, showChart, sample }: { rows: CardMonth[]
 
       {showChart && rows.length > 0 && (
         <TrendChart
+          id="card-machine"
           title={t(quote ? "Card money and machine cost" : "Card money in PappyJoe")}
           kind="bar"
           months={rows.map((r) => r.month)}

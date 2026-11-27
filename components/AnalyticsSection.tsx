@@ -9,7 +9,7 @@ import {
   type AnalyticsRow,
   type Scope,
 } from "@/lib/analytics";
-import { CHART_THRESHOLD_MONTHS, CHART_WINDOW_MONTHS, shouldShowCharts } from "@/lib/trend";
+import { CHART_THRESHOLD_MONTHS, shouldShowCharts } from "@/lib/trend";
 import { CLINIC_LABEL, type PjReceipt } from "@/lib/types";
 import { ChartsTableToggle } from "./ChartsTableToggle";
 import { TrendChart } from "./TrendChart";
@@ -30,7 +30,6 @@ export function AnalyticsSection({ receipts, preview, latestMonth }: { receipts:
   const chartsOn = preview || shouldShowCharts(monthsOfData);
   const rows = preview ? previewAnalyticsRows(realMonths[realMonths.length - 1] ?? latestMonth) : analyticsRows(receipts, realMonths);
   const months = [...new Set(rows.map((r) => r.month))];
-  const chartMonths = months.slice(-CHART_WINDOW_MONTHS);
   const cardRows = byScope(rows, "ALL", months).map((r) => ({ month: r.month, count: r.modes.CARD.count, amount: r.modes.CARD.amount }));
   const remaining = CHART_THRESHOLD_MONTHS + 1 - monthsOfData;
 
@@ -54,7 +53,7 @@ export function AnalyticsSection({ receipts, preview, latestMonth }: { receipts:
           </p>
           {chartsOn ? (
             <ChartsTableToggle
-              charts={<AnalyticsCharts rows={rows} months={chartMonths} sample={preview} monthsOfData={monthsOfData} />}
+              charts={<AnalyticsCharts rows={rows} months={months} sample={preview} monthsOfData={monthsOfData} />}
               table={<AnalyticsTables rows={rows} />}
             />
           ) : (
@@ -92,14 +91,16 @@ function AnalyticsCharts({ rows, months: ms, sample, monthsOfData: n }: { rows: 
   return (
     <>
       <p className="muted">
-        {sample ? <strong>Sample data.</strong> : <strong>Real numbers from {n} months of PappyJoe payments.</strong>} Last {ms.length} months.
-        Tap a month to see its numbers, or switch to Table for every month.
+        {sample ? <strong>Sample data.</strong> : <strong>Real numbers from {n} months of PappyJoe payments.</strong>} Each chart shows the latest 12
+        months; switch it to All for older months, or tick vs last year to compare with the same month a year before. Tap a month
+        to see its numbers.
       </p>
       <div className="chart-grid">
-        <TrendChart title={t("Patients per month")} kind="bar" format="count" months={ms} series={clinics((r) => r.patients)} notes={all.map((r) => `Both clinics ${r.patients} patients, ${r.visits} paying visits`)} />
-        <TrendChart title={t("Paying visits per day")} kind="line" format="decimal" months={ms} series={clinics((r) => r.visitsPerDay)} />
-        <TrendChart title={t("Revenue per patient")} kind="line" months={ms} series={clinics((r) => r.perPatient)} notes={all.map((r) => `Per visit, both clinics ${inr(r.perVisit)}`)} />
+        <TrendChart id="an-patients" title={t("Patients per month")} kind="bar" format="count" months={ms} series={clinics((r) => r.patients)} notes={all.map((r) => `Both clinics ${r.patients} patients, ${r.visits} paying visits`)} />
+        <TrendChart id="an-visits" title={t("Paying visits per day")} kind="line" format="decimal" months={ms} series={clinics((r) => r.visitsPerDay)} />
+        <TrendChart id="an-perpatient" title={t("Revenue per patient")} kind="line" months={ms} series={clinics((r) => r.perPatient)} notes={all.map((r) => `Per visit, both clinics ${inr(r.perVisit)}`)} />
         <TrendChart
+          id="an-modes"
           title={t("How patients pay, both clinics")}
           kind="bar"
           months={ms}

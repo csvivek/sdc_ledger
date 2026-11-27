@@ -2,7 +2,7 @@
 // Only counts and totals come out of here: never patient names, ids or phone numbers.
 
 import { monthOf } from "./calc";
-import { monthsEndingAt } from "./trend";
+import { monthsEndingAt, PREVIEW_MONTHS } from "./trend";
 import type { ClinicId, MonthKey, PayMode, PjReceipt } from "./types";
 
 export type Scope = ClinicId | "ALL";
@@ -131,7 +131,7 @@ export function cardCostShare(cardVolume: number, q: CardQuote): number | null {
  * SAMPLE ROWS for previewing the analytics charts before there are 7 real months.
  * Invented, deterministic, never stored.
  */
-export function previewAnalyticsRows(end: MonthKey, count = 12): AnalyticsRow[] {
+export function previewAnalyticsRows(end: MonthKey, count = PREVIEW_MONTHS): AnalyticsRow[] {
   return monthsEndingAt(end, count).flatMap((month, i) => {
     const mk = (pts: number, perPt: number, cashPct: number, card: number): Omit<AnalyticsRow, "month" | "scope"> => {
       const visits = Math.round(pts * 1.4);
