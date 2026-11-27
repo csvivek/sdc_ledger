@@ -122,6 +122,8 @@ export const toUser = (r: Row): User => ({
   name: r.name,
   role: r.role,
   clinic: r.clinic ?? undefined,
+  // The column comes with the staff SQL; before that everyone is active.
+  active: r.active ?? true,
 });
 
 export class SupabaseLedgerStore implements LedgerStore {

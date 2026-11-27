@@ -23,6 +23,8 @@ const ADMIN_NAV: [string, string][] = [
   ["/payees", "Payees"],
   ["/categories", "Categories"],
   ["/export", "Export"],
+  ["/staff", "Staff"],
+  ["/activity", "Activity"],
   ["/backup", "Backup"],
 ];
 
@@ -48,7 +50,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
             </form>
           )}
         </header>
-        {user?.role === "admin" && <Nav items={ADMIN_NAV} />}
+        {user?.role === "admin" && user.active !== false && <Nav items={ADMIN_NAV} />}
         <main>{children}</main>
       </body>
     </html>

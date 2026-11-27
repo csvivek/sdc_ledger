@@ -7,6 +7,8 @@ import { readSheetRows } from "@/lib/import/read-sheet";
 import { isHdfcStatement, parseHdfc } from "@/lib/import/hdfc";
 import { isPappyJoePayments, parsePappyJoe } from "@/lib/import/pappyjoe";
 import { classify, findDuplicateRule, normalisePattern } from "@/lib/import/rules";
+import { noteActivity } from "@/lib/note-activity";
+import { isSupabaseConfigured } from "@/lib/supabase/config";
 import { BANK_KIND_LABEL, CLINIC_LABEL, type BankRule, type BankTxn, type ClinicOrShared, type ReconNote } from "@/lib/types";
 
 export interface FileResult {
@@ -54,6 +56,7 @@ export async function importFiles(_prev: ImportState, formData: FormData): Promi
         }
         const txns: Omit<BankTxn, "id">[] = p.rows.map((r) => ({ ...r, ...classify(r, bankRules) }));
         const out = await store.importBank(txns, { fileName: f.name, importedBy: user.id });
+        await noteActivity(user, "add", "import_batches", undefined, { after: { fileName: f.name, source: "HDFC", rowsAdded: out.added } });
         const dates = p.rows.map((r) => r.date).sort();
         const debits = txns.filter((t) => t.withdrawal > 0);
         const unknown = debits.filter((t) => t.kind === "UNKNOWN_OUT").length;
@@ -70,6 +73,7 @@ export async function importFiles(_prev: ImportState, formData: FormData): Promi
           continue;
         }
         const out = await store.importPappyJoe(p.clinic, p.rows, { fileName: f.name, importedBy: user.id });
+        await noteActivity(user, "add", "import_batches", undefined, { after: { fileName: f.name, source: "PAPPYJOE", clinic: p.clinic, rowsAdded: out.added } });
         const dates = p.rows.map((r) => r.date).sort();
         const neg = p.rows.filter((r) => r.amount < 0);
         res.ok = true;
@@ -154,6 +158,10 @@ export async function categoriseDebit(_prev: DebitFormState, formData: FormData)
       }
     }
     await store.updateBankTxn(id, { kind: action, category, clinic: ruleClinic, ruleId });
+    await noteActivity(user, "change", "bank_transactions", id, {
+      before: { narration: txn.narration, date: txn.date, kind: txn.kind, category: txn.category ?? null },
+      after: { kind: action, category: category ?? null },
+    });
     if (ruleId) await reapply(d.bankTxns.filter((t) => t.id !== id), d.bankRules);
   } catch (err) {
     console.error("categoriseDebit failed", id, err);
@@ -254,7 +262,9 @@ export async function saveRule(_prev: RuleFormState, formData: FormData): Promis
     let relinked = 0;
     if (id) {
       if (!d.bankRules.some((r) => r.id === id)) return { error: "This rule no longer exists. Reload the page." };
+      const old = d.bankRules.find((r) => r.id === id);
       await store.updateBankRule(id, rule);
+      await noteActivity(user, "change", "bank_rules", id, { before: { ...old }, after: { ...rule } });
       rules = d.bankRules.map((r) => (r.id === id ? { ...rule, id } : r));
       if (updateLinked) {
         for (const t of d.bankTxns) {
@@ -266,6 +276,7 @@ export async function saveRule(_prev: RuleFormState, formData: FormData): Promis
       }
     } else {
       const added = await store.addBankRule(rule, user.id);
+      await noteActivity(user, "add", "bank_rules", added.id, { after: added });
       rules = [...d.bankRules, added];
     }
     // Debits re-done above are no longer UNKNOWN_OUT in this snapshot, so reapply leaves them alone.
@@ -286,9 +297,13 @@ export async function saveRule(_prev: RuleFormState, formData: FormData): Promis
 }
 
 export async function deleteRule(_prev: RuleFormState, formData: FormData): Promise<RuleFormState> {
-  await requireAdmin();
+  const user = await requireAdmin();
   try {
-    await getStore().deleteBankRule(String(formData.get("id") ?? ""));
+    const id = String(formData.get("id") ?? "");
+    // Only the fake-data log needs the old rule; on Supabase the database logs it.
+    const old = isSupabaseConfigured ? undefined : (await getStore().read()).bankRules.find((r) => r.id === id);
+    await getStore().deleteBankRule(id);
+    await noteActivity(user, "delete", "bank_rules", id, { before: old ? { ...old } : undefined });
   } catch (err) {
     console.error("delete rule failed", err);
     return { error: "Could not delete the rule. Please try again." };

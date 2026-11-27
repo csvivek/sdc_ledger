@@ -27,6 +27,8 @@ export interface User {
   role: Role;
   /** Home clinic for staff; used as the default on the entry form. */
   clinic?: ClinicId;
+  /** False when the admin has switched this login off. Missing means on. */
+  active?: boolean;
 }
 
 export interface Expense {

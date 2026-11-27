@@ -7,6 +7,7 @@ import { getStore } from "@/lib/data/store";
 import { requireAdmin, requireUser, SESSION_COOKIE } from "@/lib/auth";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
 import { createClient } from "@/lib/supabase/server";
+import { noteActivity } from "@/lib/note-activity";
 import { PAYEE_KINDS, type ClinicId, type ClinicOrShared, type InPappyJoe, type PaidBy, type PayeeKind } from "@/lib/types";
 
 export type LoginState = { error?: string };
@@ -28,7 +29,7 @@ export async function login(formData: FormData) {
   if (isSupabaseConfigured) redirect("/login");
   const uid = String(formData.get("user") ?? "");
   const d = await getStore().read();
-  const u = d.users.find((x) => x.id === uid);
+  const u = d.users.find((x) => x.id === uid && x.active !== false);
   if (!u) redirect("/login");
   (await cookies()).set(SESSION_COOKIE, u.id, { httpOnly: true, sameSite: "lax", path: "/" });
   redirect(u.role === "admin" ? "/dashboard" : "/expenses");
@@ -105,7 +106,7 @@ export async function addExpense(_prev: ExpenseFormState, formData: FormData): P
     } else if (payeeId) {
       payeeName = d.payees.find((x) => x.id === payeeId)?.name ?? "";
     }
-    await getStore().addExpense({
+    const saved = await getStore().addExpense({
       date,
       amount,
       category,
@@ -118,6 +119,7 @@ export async function addExpense(_prev: ExpenseFormState, formData: FormData): P
       inPappyJoe,
       enteredBy: user.id,
     });
+    await noteActivity(user, "add", "expenses", saved.id, { after: saved });
   } catch (err) {
     console.error("addExpense failed", err);
     return { error: "Could not save. Please try again." };
@@ -131,15 +133,17 @@ export async function addPayeeAdmin(formData: FormData) {
   const kind = String(formData.get("kind") ?? "");
   const name = String(formData.get("name") ?? "").trim().replace(/\s+/g, " ");
   if (!(PAYEE_KINDS as string[]).includes(kind) || !name || name.length > 100) return;
-  await getStore().addPayee(kind as PayeeKind, name, user.id);
+  const p = await getStore().addPayee(kind as PayeeKind, name, user.id);
+  await noteActivity(user, "add", "payees", p.id, { after: p });
   revalidatePath("/payees");
 }
 
 export async function togglePayeeActive(formData: FormData) {
-  await requireAdmin();
+  const user = await requireAdmin();
   const id = String(formData.get("id") ?? "");
   const active = formData.get("active") === "1";
   await getStore().setPayeeActive(id, active);
+  await noteActivity(user, "change", "payees", id, { before: { active: !active }, after: { active } });
   revalidatePath("/payees");
 }
 
@@ -162,7 +166,7 @@ function checkCategoryName(name: string): string | undefined {
 const sameName = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
 
 export async function addCategoryAdmin(_prev: CategoryFormState, formData: FormData): Promise<CategoryFormState> {
-  await requireAdmin();
+  const user = await requireAdmin();
   const name = cleanCategoryName(formData.get("name"));
   const bad = checkCategoryName(name);
   if (bad) return { error: bad };
@@ -177,6 +181,7 @@ export async function addCategoryAdmin(_prev: CategoryFormState, formData: FormD
       };
     }
     await getStore().addCategory(name);
+    await noteActivity(user, "add", "categories", name, { after: { name } });
   } catch (err) {
     console.error("addCategoryAdmin failed", err);
     return { error: "Could not add the category. Please try again." };
@@ -186,7 +191,7 @@ export async function addCategoryAdmin(_prev: CategoryFormState, formData: FormD
 }
 
 export async function renameCategoryAdmin(_prev: CategoryFormState, formData: FormData): Promise<CategoryFormState> {
-  await requireAdmin();
+  const user = await requireAdmin();
   const oldName = String(formData.get("oldName") ?? "");
   const name = cleanCategoryName(formData.get("name"));
   const bad = checkCategoryName(name);
@@ -199,6 +204,7 @@ export async function renameCategoryAdmin(_prev: CategoryFormState, formData: Fo
     const clash = all.find((c) => c.name !== oldName && sameName(c.name, name));
     if (clash) return { error: `"${clash.name}" already exists${clash.active ? "" : " (hidden)"}. Please pick a different name.` };
     await getStore().renameCategory(oldName, name);
+    await noteActivity(user, "change", "categories", name, { before: { name: oldName }, after: { name } });
   } catch (err) {
     console.error("renameCategoryAdmin failed", err);
     return { error: "Could not rename. Please try again." };
@@ -208,7 +214,7 @@ export async function renameCategoryAdmin(_prev: CategoryFormState, formData: Fo
 }
 
 export async function toggleCategoryActive(_prev: CategoryFormState, formData: FormData): Promise<CategoryFormState> {
-  await requireAdmin();
+  const user = await requireAdmin();
   const name = String(formData.get("name") ?? "");
   const active = formData.get("active") === "1";
   if (!active && name === FALLBACK_CATEGORY) return { error: `"${FALLBACK_CATEGORY}" is used for anything not yet sorted, so it cannot be hidden.` };
@@ -216,6 +222,7 @@ export async function toggleCategoryActive(_prev: CategoryFormState, formData: F
     const all = await getStore().listCategories();
     if (!all.some((c) => c.name === name)) return { error: "That category was not found. Please refresh the page." };
     await getStore().setCategoryActive(name, active);
+    await noteActivity(user, "change", "categories", name, { before: { name, active: !active }, after: { active } });
   } catch (err) {
     console.error("toggleCategoryActive failed", err);
     return { error: "Could not save. Please try again." };
@@ -225,10 +232,11 @@ export async function toggleCategoryActive(_prev: CategoryFormState, formData: F
 }
 
 export async function toggleCardCredited(formData: FormData) {
-  await requireAdmin();
+  const user = await requireAdmin();
   const id = String(formData.get("id") ?? "");
   const credited = formData.get("credited") === "1";
-  await getStore().markCardCredited(id, credited ? new Date().toISOString().slice(0, 10) : undefined);
+  const card = await getStore().markCardCredited(id, credited ? new Date().toISOString().slice(0, 10) : undefined);
+  await noteActivity(user, "change", "card_payments", id, { before: { patientRef: card?.patientRef, amount: card?.amount }, after: { credited_on: card?.creditedOn ?? null } });
   revalidatePath("/card-income");
 }
 
