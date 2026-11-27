@@ -29,5 +29,5 @@ create policy "admin read backup log" on public.backup_log
 create policy "admin add backup log" on public.backup_log
   for insert to authenticated with check ((select private.is_admin()) and taken_by = (select auth.uid()));
 
-revoke all on public.backup_log from anon;
+revoke all on public.backup_log from anon, authenticated;
 grant select, insert on public.backup_log to authenticated;

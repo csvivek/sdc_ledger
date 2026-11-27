@@ -19,7 +19,8 @@ import { isNotSetUp, notReady, NotSetUpError, ready, type DbError, type Maybe } 
 import { getStore } from "./store";
 import type { GapAnswerInfo, PettyCountInfo } from "../admin-types";
 import type { ActivityEntry, ActivityFilter } from "../activity";
-import type { ClinicId, Role, User } from "../types";
+import type { ClinicId, MonthKey, Role, User } from "../types";
+import type { CheckItem, CloseEvent, MonthClose } from "../month-close";
 
 type Row = Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
 
@@ -49,6 +50,22 @@ export interface ExtrasStore {
    * database triggers write the log, so the app never can (or needs to).
    */
   noteActivity(e: Omit<ActivityEntry, "id" | "at" | "actorName">): Promise<void>;
+
+  // Month close
+  listCloses(): Promise<Maybe<MonthClose[]>>;
+  /** Months closed now. Empty until the month close SQL is run. Readable by staff too. */
+  closedMonths(): Promise<Set<MonthKey>>;
+  closeEvents(month: MonthKey): Promise<Maybe<CloseEvent[]>>;
+  closeMonth(month: MonthKey, checklist: CheckItem[], note: string, by: string): Promise<void>;
+  reopenMonth(month: MonthKey, reason: string, by: string): Promise<void>;
+}
+
+/** The month was already closed, or was not closed, when someone else got there first. */
+export class CloseStateError extends Error {
+  constructor(public code: "ALREADY_CLOSED" | "NOT_CLOSED" | "MONTH_NOT_OVER") {
+    super(code);
+    this.name = "CloseStateError";
+  }
 }
 
 export interface Person extends User {
@@ -80,12 +97,14 @@ export class LastAdminError extends Error {
 export interface ExtrasFile {
   backups: BackupRecord[];
   activity: ActivityEntry[];
+  closes: MonthClose[];
+  closeEvents: CloseEvent[];
 }
 
 const DIR = process.env.VERCEL ? path.join(os.tmpdir(), "sdc-ledger") : path.join(process.cwd(), "data");
 const FILE = path.join(DIR, "extras.json");
 
-const emptyExtras = (): ExtrasFile => ({ backups: [], activity: [] });
+const emptyExtras = (): ExtrasFile => ({ backups: [], activity: [], closes: [], closeEvents: [] });
 
 /** The main fake-data file (lib/data/store.ts); people live in its users list. */
 const STORE_FILE = path.join(DIR, "store.json");
@@ -213,6 +232,44 @@ class JsonExtrasStore implements ExtrasStore {
     await updateExtrasFile((x) => {
       // Ids sort in time order, so "Older" paging works.
       x.activity.push({ ...e, id: `act_${String(Date.now()).padStart(15, "0")}_${String(x.activity.length).padStart(6, "0")}`, at: new Date().toISOString() });
+    });
+  }
+
+  async listCloses() {
+    const x = await loadExtrasFile();
+    const names = new Map((await getStore().read()).users.map((u) => [u.id, u.name]));
+    return ready(x.closes.map((c) => ({ ...c, closedByName: c.closedBy ? names.get(c.closedBy) : undefined })).sort((a, b) => b.month.localeCompare(a.month)));
+  }
+
+  async closedMonths() {
+    const x = await loadExtrasFile();
+    return new Set(x.closes.filter((c) => c.closed).map((c) => c.month));
+  }
+
+  async closeEvents(month: MonthKey) {
+    const x = await loadExtrasFile();
+    return ready(x.closeEvents.filter((e) => e.month === month).sort((a, b) => b.at.localeCompare(a.at)));
+  }
+
+  async closeMonth(month: MonthKey, checklist: CheckItem[], note: string, by: string) {
+    const name = (await getStore().read()).users.find((u) => u.id === by)?.name;
+    await updateExtrasFile((x) => {
+      const c = x.closes.find((y) => y.month === month);
+      if (c?.closed) throw new CloseStateError("ALREADY_CLOSED");
+      const row: MonthClose = { month, closed: true, closedBy: by, closedAt: new Date().toISOString(), note, checklist };
+      if (c) Object.assign(c, row);
+      else x.closes.push(row);
+      x.closeEvents.push({ id: newId("ce"), month, action: "close", reason: note, byName: name, at: new Date().toISOString() });
+    });
+  }
+
+  async reopenMonth(month: MonthKey, reason: string, by: string) {
+    const name = (await getStore().read()).users.find((u) => u.id === by)?.name;
+    await updateExtrasFile((x) => {
+      const c = x.closes.find((y) => y.month === month);
+      if (!c?.closed) throw new CloseStateError("NOT_CLOSED");
+      Object.assign(c, { closed: false, reopenedByName: name, reopenedAt: new Date().toISOString(), reopenReason: reason });
+      x.closeEvents.push({ id: newId("ce"), month, action: "reopen", reason, byName: name, at: new Date().toISOString() });
     });
   }
 
@@ -423,6 +480,66 @@ export class SupabaseExtrasStore implements ExtrasStore {
 
   async noteActivity() {
     // Written by database triggers on Supabase.
+  }
+
+  async listCloses() {
+    return maybe(async () => {
+      const sb = await this.client();
+      const { data, error } = await sb.from("month_closes").select("*").order("month", { ascending: false });
+      check(error, "Month close");
+      const names = await this.names(sb);
+      return (data ?? []).map(
+        (r): MonthClose => ({
+          month: r.month,
+          closed: r.closed,
+          closedBy: r.closed_by ?? undefined,
+          closedByName: r.closed_by ? names.get(r.closed_by) : undefined,
+          closedAt: r.closed_at ?? undefined,
+          note: r.note ?? "",
+          checklist: Array.isArray(r.checklist) ? r.checklist : [],
+          reopenedByName: r.reopened_by ? names.get(r.reopened_by) : undefined,
+          reopenedAt: r.reopened_at ?? undefined,
+          reopenReason: r.reopen_reason ?? undefined,
+        }),
+      );
+    });
+  }
+
+  async closedMonths() {
+    const sb = await this.client();
+    const { data, error } = await sb.from("month_closes").select("month").eq("closed", true);
+    if (error && isNotSetUp(error)) return new Set<MonthKey>();
+    if (error) throw new Error(error.message);
+    return new Set((data ?? []).map((r) => r.month as MonthKey));
+  }
+
+  async closeEvents(month: MonthKey) {
+    return maybe(async () => {
+      const sb = await this.client();
+      const { data, error } = await sb.from("month_close_events").select("*").eq("month", month).order("id", { ascending: false });
+      check(error, "Month close");
+      const names = await this.names(sb);
+      return (data ?? []).map((r): CloseEvent => ({ id: String(r.id), month: r.month, action: r.action, reason: r.reason ?? "", byName: r.done_by ? names.get(r.done_by) : undefined, at: r.done_at }));
+    });
+  }
+
+  private async closeRpc(name: string, args: Row) {
+    const sb = await this.client();
+    const { error } = await sb.rpc(name, args);
+    if (!error) return;
+    if (isNotSetUp(error)) throw new NotSetUpError("Month close");
+    const code = error.message.match(/ALREADY_CLOSED|NOT_CLOSED|MONTH_NOT_OVER/)?.[0];
+    if (code) throw new CloseStateError(code as CloseStateError["code"]);
+    throw new Error(error.message);
+  }
+
+  // The database records who did it (auth.uid()), so `by` is not sent.
+  async closeMonth(month: MonthKey, checklist: CheckItem[], note: string, _by?: string) {
+    await this.closeRpc("close_month", { p_month: month, p_checklist: checklist, p_note: note });
+  }
+
+  async reopenMonth(month: MonthKey, reason: string, _by?: string) {
+    await this.closeRpc("reopen_month", { p_month: month, p_reason: reason });
   }
 }
 

@@ -8,6 +8,8 @@ import { requireAdmin, requireUser, SESSION_COOKIE } from "@/lib/auth";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
 import { createClient } from "@/lib/supabase/server";
 import { noteActivity } from "@/lib/note-activity";
+import { closedError } from "@/lib/closed-months";
+import { closedMessage, closedMonthFromError } from "@/lib/month-close";
 import { PAYEE_KINDS, type ClinicId, type ClinicOrShared, type InPappyJoe, type PaidBy, type PayeeKind } from "@/lib/types";
 
 export type LoginState = { error?: string };
@@ -70,6 +72,8 @@ export async function addExpense(_prev: ExpenseFormState, formData: FormData): P
   if (!["PETTY_CASH", "UPI", "BANK"].includes(paidBy)) return { error: "Pick how it was paid." };
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return { error: "Pick a date." };
   if (!["YES", "NO", "NA"].includes(inPappyJoe)) return { error: "Say whether this is already entered in PappyJoe." };
+  const closed = await closedError(date);
+  if (closed) return { error: closed };
 
   // Salary, Lab and Consultant ask who was paid. The kind comes from the
   // category, never from the browser.
@@ -121,6 +125,8 @@ export async function addExpense(_prev: ExpenseFormState, formData: FormData): P
     });
     await noteActivity(user, "add", "expenses", saved.id, { after: saved });
   } catch (err) {
+    const m = closedMonthFromError(err);
+    if (m) return { error: closedMessage(m) };
     console.error("addExpense failed", err);
     return { error: "Could not save. Please try again." };
   }

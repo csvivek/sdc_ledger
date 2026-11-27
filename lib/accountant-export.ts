@@ -293,7 +293,7 @@ const GAP_TYPE_LABEL: Record<string, string> = {
  * come from gap_answers when that table exists (PR #15); notes and reasons
  * typed on the Reconcile page are always included.
  */
-export function gapRows(d: LedgerData, o: ExportOptions, answers?: GapAnswerInfo[]): GapRow[] {
+export function gapRows(d: LedgerData, o: ExportOptions, answers?: GapAnswerInfo[], useNotes = true): GapRow[] {
   const m = matches(d);
   const clinics = clinicsIn(o.scope);
   const answer = (type: string, key: string) => answers?.find((a) => a.gapType === type && a.itemKey === key);
@@ -304,7 +304,7 @@ export function gapRows(d: LedgerData, o: ExportOptions, answers?: GapAnswerInfo
   const out: GapRow[] = [];
   for (const month of monthsBetween(o.from, o.to)) {
     const r = reconcileMonth(d, month, m);
-    const note = (topic: string) => d.reconNotes.find((n) => n.month === month && n.topic === topic)?.note ?? "";
+    const note = (topic: string) => (useNotes ? (d.reconNotes.find((n) => n.month === month && n.topic === topic)?.note ?? "") : "");
     const withNote = (a: { answer: string; followUp: string }, topic: string) => (a.answer ? a : { ...a, answer: note(topic) });
     for (const t of r.upi.bankOnly)
       out.push({ month, type: GAP_TYPE_LABEL.UPI_BANK_ONLY, date: t.date, clinic: "Bank (both clinics)", amount: t.deposit, details: t.narration, ...withNote(said("UPI_BANK_ONLY", t.id), "UPI") });
@@ -328,7 +328,7 @@ export function gapRows(d: LedgerData, o: ExportOptions, answers?: GapAnswerInfo
     }
     if (r.hasBank && Math.round(r.cash.unexplained) !== 0) {
       const a = said("CASH_GAP", month);
-      const typed = clinics.map((c) => d.reconReasons.find((x) => x.month === month && x.clinic === c)?.reason).filter(Boolean).join(" · ");
+      const typed = useNotes ? clinics.map((c) => d.reconReasons.find((x) => x.month === month && x.clinic === c)?.reason).filter(Boolean).join(" · ") : "";
       out.push({
         month,
         type: GAP_TYPE_LABEL.CASH_GAP,

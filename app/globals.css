@@ -623,3 +623,12 @@ tr.off td { opacity: 0.6; }
 .badge.act-add { background: var(--good-soft); color: var(--good); }
 .badge.act-change { background: var(--brand-soft); color: var(--brand-dark); }
 .badge.act-delete { background: var(--bad-soft); color: var(--bad); }
+.checklist { list-style: none; padding: 0; margin: 0 0 16px; display: grid; gap: 8px; }
+.checklist li { display: flex; gap: 12px; align-items: flex-start; background: var(--card); border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 12px; }
+.check-icon { flex: none; width: 28px; height: 28px; border-radius: 999px; display: inline-flex; align-items: center; justify-content: center; font-weight: 700; }
+.check-done .check-icon { background: var(--good-soft); color: var(--good); }
+.check-todo .check-icon { background: var(--bad-soft); color: var(--bad); }
+.check-warn .check-icon { background: var(--warn-bg); color: var(--warn-text); }
+.check-na .check-icon { background: var(--bg); color: var(--muted); }
+label.check { display: flex; align-items: center; gap: 8px; font-weight: 600; }
+label.check input { width: auto; }

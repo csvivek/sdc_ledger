@@ -9,6 +9,9 @@ import { isPappyJoePayments, parsePappyJoe } from "@/lib/import/pappyjoe";
 import { classify, findDuplicateRule, normalisePattern } from "@/lib/import/rules";
 import { noteActivity } from "@/lib/note-activity";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
+import { closedMonths } from "@/lib/closed-months";
+import { closedMessage, closedMonthFromError } from "@/lib/month-close";
+import { monthLabel, monthOf } from "@/lib/calc";
 import { BANK_KIND_LABEL, CLINIC_LABEL, type BankRule, type BankTxn, type ClinicOrShared, type ReconNote } from "@/lib/types";
 
 export interface FileResult {
@@ -29,7 +32,17 @@ export async function importFiles(_prev: ImportState, formData: FormData): Promi
   if (files.length > MAX_FILES) return { error: `Upload at most ${MAX_FILES} files at a time.` };
 
   const store = getStore();
-  const { bankRules } = await store.read();
+  const before = await store.read();
+  const { bankRules } = before;
+  // Rows dated in a closed month are never imported. Those already in the ledger are simply duplicates;
+  // new ones are counted so the admin knows to reopen the month.
+  const closed = await closedMonths();
+  const haveFp = new Set(before.bankTxns.map((t) => t.fingerprint));
+  const haveReceipt = new Set(before.pjReceipts.map((r) => `${r.clinic}|${r.receiptNo}`));
+  const closedNote = (rows: { date: string }[]) => {
+    const months = [...new Set(rows.map((r) => monthOf(r.date)))].sort().map(monthLabel).join(", ");
+    return `${rows.length} new row(s) dated in closed month(s) ${months} were NOT imported. Reopen the month on Month close to add them.`;
+  };
   const results: FileResult[] = [];
 
   for (const f of files) {
@@ -54,7 +67,14 @@ export async function importFiles(_prev: ImportState, formData: FormData): Promi
           res.lines.push("Not imported, because the file did not read cleanly:", ...p.errors);
           continue;
         }
-        const txns: Omit<BankTxn, "id">[] = p.rows.map((r) => ({ ...r, ...classify(r, bankRules) }));
+        const all: Omit<BankTxn, "id">[] = p.rows.map((r) => ({ ...r, ...classify(r, bankRules) }));
+        const txns = all.filter((t) => !closed.has(monthOf(t.date)));
+        const blocked = all.filter((t) => closed.has(monthOf(t.date)) && !haveFp.has(t.fingerprint));
+        if (!txns.length) {
+          res.ok = !blocked.length;
+          res.lines.push(blocked.length ? closedNote(blocked) : "Every row is in a closed month and already imported. Nothing to add.");
+          continue;
+        }
         const out = await store.importBank(txns, { fileName: f.name, importedBy: user.id });
         await noteActivity(user, "add", "import_batches", undefined, { after: { fileName: f.name, source: "HDFC", rowsAdded: out.added } });
         const dates = p.rows.map((r) => r.date).sort();
@@ -66,12 +86,22 @@ export async function importFiles(_prev: ImportState, formData: FormData): Promi
           ...p.checks,
           `${debits.length - unknown} of ${debits.length} debits categorised automatically${unknown ? `; ${unknown} need your answer below` : ""}.`,
         );
+        if (blocked.length) res.lines.push(closedNote(blocked));
       } else if (isPappyJoePayments(rows)) {
         const p = parsePappyJoe(rows, f.name);
         if (p.errors.length || !p.clinic) {
           res.lines.push("Not imported, because the file did not read cleanly:", ...p.errors);
           continue;
         }
+        const clinic = p.clinic;
+        const open = p.rows.filter((r) => !closed.has(monthOf(r.date)));
+        const blockedPj = p.rows.filter((r) => closed.has(monthOf(r.date)) && !haveReceipt.has(`${clinic}|${r.receiptNo}`));
+        if (!open.length) {
+          res.ok = !blockedPj.length;
+          res.lines.push(blockedPj.length ? closedNote(blockedPj) : "Every payment is in a closed month and already imported. Nothing to add.");
+          continue;
+        }
+        p.rows = open;
         const out = await store.importPappyJoe(p.clinic, p.rows, { fileName: f.name, importedBy: user.id });
         await noteActivity(user, "add", "import_batches", undefined, { after: { fileName: f.name, source: "PAPPYJOE", clinic: p.clinic, rowsAdded: out.added } });
         const dates = p.rows.map((r) => r.date).sort();
@@ -82,14 +112,20 @@ export async function importFiles(_prev: ImportState, formData: FormData): Promi
           ...p.warnings,
         );
         if (out.cardsAdded) res.lines.push(`${out.cardsAdded} card payment(s) added to Card income as pending.`);
+        if (blockedPj.length) res.lines.push(closedNote(blockedPj));
         if (neg.length)
           res.lines.push(`${neg.length} negative amount(s) (${neg.map((r) => inr(r.amount)).join(", ")}) are listed on Reconcile for you to confirm.`);
       } else {
         res.lines.push("Not recognised. Expected an HDFC account statement or a PappyJoe Payments export.");
       }
     } catch (err) {
-      console.error("import failed", f.name, err);
+      const m = closedMonthFromError(err);
       res.ok = false;
+      if (m) {
+        res.lines.push(closedMessage(m));
+        continue;
+      }
+      console.error("import failed", f.name, err);
       res.lines.push("Could not save this file. Please try again.");
     }
   }
@@ -120,6 +156,7 @@ export async function categoriseDebit(_prev: DebitFormState, formData: FormData)
     const d = await store.read();
     const txn = d.bankTxns.find((t) => t.id === id);
     if (!txn || !(txn.withdrawal > 0)) return { error: "This bank payment was not found. Reload the page and try again." };
+    if ((await closedMonths()).has(monthOf(txn.date))) return { error: closedMessage(monthOf(txn.date)) };
 
     let action: BankRule["action"];
     let category: string | undefined;
@@ -183,9 +220,10 @@ function isDuplicateRuleError(err: unknown) {
 /** Runs the rules again over debits that are still waiting for an answer. Never changes a debit someone already decided. */
 async function reapply(txns: BankTxn[], rules: BankRule[]) {
   const store = getStore();
+  const closed = await closedMonths();
   let changed = 0;
   for (const t of txns) {
-    if (t.kind !== "UNKNOWN_OUT") continue;
+    if (t.kind !== "UNKNOWN_OUT" || closed.has(monthOf(t.date))) continue;
     const c = classify(t, rules);
     if (c.kind === "UNKNOWN_OUT") continue;
     await store.updateBankTxn(t.id, { kind: c.kind, category: c.category, clinic: c.clinic, ruleId: c.ruleId });
@@ -267,8 +305,10 @@ export async function saveRule(_prev: RuleFormState, formData: FormData): Promis
       await noteActivity(user, "change", "bank_rules", id, { before: { ...old }, after: { ...rule } });
       rules = d.bankRules.map((r) => (r.id === id ? { ...rule, id } : r));
       if (updateLinked) {
+        const closed = await closedMonths();
         for (const t of d.bankTxns) {
-          if (t.ruleId !== id || !(t.withdrawal > 0)) continue;
+          // Payments in a closed month keep what they were given.
+          if (t.ruleId !== id || !(t.withdrawal > 0) || closed.has(monthOf(t.date))) continue;
           const c = classify(t, rules);
           await store.updateBankTxn(t.id, { kind: c.kind, category: c.category, clinic: c.clinic, ruleId: c.ruleId });
           relinked++;
@@ -319,6 +359,7 @@ export async function saveReconNote(formData: FormData) {
   const month = String(formData.get("month") ?? "");
   const topic = String(formData.get("topic") ?? "") as ReconNote["topic"];
   if (!/^\d{4}-\d{2}$/.test(month) || !TOPICS.includes(topic)) return;
+  if ((await closedMonths()).has(month)) return; // closed months keep their notes
   await getStore().setReconNote(month, topic, String(formData.get("note") ?? "").slice(0, 1000));
   revalidatePath("/reconciliation");
 }
