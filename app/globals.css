@@ -609,3 +609,9 @@ a.button:hover { background: var(--brand-dark); color: #fff; }
 .button.secondary { background: #fff; color: var(--brand); }
 a.button.secondary:hover { background: var(--brand-soft); color: var(--brand); }
 .card.notice { border: 1px solid #f1d58a; }
+.total-row td { font-weight: 700; border-top: 2px solid var(--line-strong); }
+@media print {
+  .no-print, .top, .nav, .mock-banner { display: none !important; }
+  body { background: #fff; }
+  .print-page .table-wrap { overflow: visible; }
+}

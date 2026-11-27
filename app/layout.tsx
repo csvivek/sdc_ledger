@@ -22,6 +22,7 @@ const ADMIN_NAV: [string, string][] = [
   ["/card-income", "Card income"],
   ["/payees", "Payees"],
   ["/categories", "Categories"],
+  ["/export", "Export"],
   ["/backup", "Backup"],
 ];
 

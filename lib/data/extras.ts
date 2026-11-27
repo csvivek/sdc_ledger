@@ -17,6 +17,7 @@ import { createClient } from "../supabase/server";
 import { isSupabaseConfigured } from "../supabase/config";
 import { isNotSetUp, notReady, NotSetUpError, ready, type DbError, type Maybe } from "./optional";
 import { getStore } from "./store";
+import type { GapAnswerInfo, PettyCountInfo } from "../admin-types";
 
 type Row = Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
 
@@ -29,6 +30,10 @@ export interface ExtrasStore {
   /** Remembers that a backup was downloaded. Does nothing (returns false) if the SQL is not run yet. */
   logBackup(entry: Omit<BackupRecord, "id" | "takenAt">): Promise<boolean>;
   listBackups(limit: number): Promise<Maybe<BackupRecord[]>>;
+
+  // Answers kept by features whose SQL may not be run yet (PR #15 gap answers, PR #16 petty cash counts).
+  gapAnswers(): Promise<Maybe<GapAnswerInfo[]>>;
+  pettyCounts(): Promise<Maybe<PettyCountInfo[]>>;
 }
 
 // ---------------------------------------------------------------------------
@@ -108,6 +113,26 @@ class JsonExtrasStore implements ExtrasStore {
       x.backups.push({ ...entry, id: newId("bk"), takenAt: new Date().toISOString() });
     });
     return true;
+  }
+
+  // PR #15 / #16 keep these in the main fake-data file once merged; until then they are absent.
+  async gapAnswers() {
+    const d = (await getStore().read()) as unknown as { gapAnswers?: Row[]; gapReasons?: Row[] };
+    if (!d.gapAnswers || !d.gapReasons) return notReady<GapAnswerInfo[]>();
+    const reasons = new Map(d.gapReasons.map((r) => [r.id, r]));
+    return ready(
+      d.gapAnswers.map((a): GapAnswerInfo => {
+        const r = reasons.get(a.reasonId);
+        return { gapType: a.gapType, itemKey: a.itemKey, amount: Number(a.amount), label: r?.label ?? "", followUp: Boolean(r?.followUp), todo: r?.todo, note: a.note ?? "" };
+      }),
+    );
+  }
+
+  async pettyCounts() {
+    const d = (await getStore().read()) as unknown as { pettyCounts?: Row[]; pettyCountReasons?: Row[] };
+    if (!d.pettyCounts) return notReady<PettyCountInfo[]>();
+    const reasons = new Map((d.pettyCountReasons ?? []).map((r) => [r.id, r.label as string]));
+    return ready(d.pettyCounts.map((c): PettyCountInfo => ({ clinic: c.clinic, month: c.month, counted: Number(c.counted), reason: c.reasonId ? reasons.get(c.reasonId) : undefined, note: c.note ?? "" })));
   }
 
   async listBackups(limit: number) {
@@ -221,6 +246,30 @@ export class SupabaseExtrasStore implements ExtrasStore {
       check(error, "Backup history");
       const names = await this.names(sb);
       return (data ?? []).map((r) => toBackup(r, names));
+    });
+  }
+
+  async gapAnswers() {
+    return maybe(async () => {
+      const sb = await this.client();
+      const [answers, reasons] = await Promise.all([sb.from("gap_answers").select("*"), sb.from("gap_reasons").select("*")]);
+      check(answers.error, "Gap answers");
+      check(reasons.error, "Gap answers");
+      const byId = new Map((reasons.data ?? []).map((r) => [r.id, r]));
+      return (answers.data ?? []).map((a): GapAnswerInfo => {
+        const r = byId.get(a.reason_id);
+        return { gapType: a.gap_type, itemKey: a.item_key, amount: Number(a.amount), label: r?.label ?? "", followUp: Boolean(r?.follow_up), todo: r?.todo ?? undefined, note: a.note ?? "" };
+      });
+    });
+  }
+
+  async pettyCounts() {
+    return maybe(async () => {
+      const sb = await this.client();
+      const [counts, reasons] = await Promise.all([sb.from("petty_cash_counts").select("*"), sb.from("petty_count_reasons").select("*")]);
+      check(counts.error, "Petty cash counts");
+      const byId = new Map((reasons.data ?? []).map((r) => [r.id, r.label as string]));
+      return (counts.data ?? []).map((c): PettyCountInfo => ({ clinic: c.clinic, month: c.month, counted: Number(c.counted), reason: c.reason_id ? byId.get(c.reason_id) : undefined, note: c.note ?? "" }));
     });
   }
 }
