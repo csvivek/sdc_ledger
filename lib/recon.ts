@@ -20,6 +20,7 @@
 // hint only; it never decides a match.
 
 import type { BankTxn, ClinicId, Expense, LedgerData, MonthKey, PjReceipt } from "./types";
+import { pettyCashMonth } from "./calc";
 
 const DAY = 86400000;
 const days = (a: string, b: string) => Math.round((Date.parse(b) - Date.parse(a)) / DAY);
@@ -241,19 +242,11 @@ export function reconcileMonth(d: LedgerData, month: MonthKey, m: Matches = matc
   const cashR = rec.filter((r) => r.mode === "CASH");
   const cashPj = byClinic(cashR);
   const deposits = txns.filter((t) => t.kind === "CASH_DEPOSIT");
-  // Petty cash: manual transfers plus bank PETTY CASH transfers split equally.
-  const pettyIn = (c: ClinicId, f: (m: string) => boolean) =>
-    sum(d.pettyCashTransfers.filter((t) => t.clinic === c && f(monthOf(t.date))), (t) => t.amount) +
-    sum(d.bankTxns.filter((t) => t.kind === "PETTY_CASH" && f(monthOf(t.date))), (t) => t.withdrawal / 2);
-  const pettyOut = (c: ClinicId, f: (m: string) => boolean) =>
-    sum(d.expenses.filter((e) => e.paidBy === "PETTY_CASH" && e.pettyCashClinic === c && f(monthOf(e.date))), (e) => e.amount);
+  // Petty cash: same maths as the Petty cash page (manual transfers plus bank
+  // PETTY CASH transfers split equally; leftover carried into the next month).
   const pettyFor = (c: ClinicId) => {
-    const before = (m: string) => m < month;
-    const now = (m: string) => m === month;
-    const opening = d.pettyCashOpening[c] + pettyIn(c, before) - pettyOut(c, before);
-    const received = pettyIn(c, now);
-    const spent = pettyOut(c, now);
-    return { opening, received, spent, closing: opening + received - spent };
+    const p = pettyCashMonth(d, c, month);
+    return { opening: p.carriedIn, received: p.received, spent: p.spent, closing: p.leftAtEnd };
   };
 
   const cardR = rec.filter((r) => r.mode === "CARD");

@@ -125,6 +125,26 @@ export function pettyCash(d: LedgerData, clinic: ClinicId) {
   return { opening, totalIn, totalOut, balance: opening + totalIn - totalOut, transfersIn, spent };
 }
 
+/**
+ * One clinic's petty cash for one month. Leftover cash stays in the clinic box,
+ * so the month starts with whatever was left at the end of the month before
+ * (the opening amount plus everything received, minus everything spent, before
+ * this month). The Reconcile page uses this too, so both pages always agree.
+ */
+export function pettyCashMonth(d: LedgerData, clinic: ClinicId, month: MonthKey) {
+  const all = pettyCash(d, clinic);
+  const before = (date: string) => monthOf(date) < month;
+  const inMonth = (date: string) => monthOf(date) === month;
+  const sumOf = (xs: { amount: number }[]) => xs.reduce((s, x) => s + x.amount, 0);
+  const transfersIn = all.transfersIn.filter((t) => inMonth(t.date));
+  const spent = all.spent.filter((e) => inMonth(e.date));
+  const carriedIn =
+    all.opening + sumOf(all.transfersIn.filter((t) => before(t.date))) - sumOf(all.spent.filter((e) => before(e.date)));
+  const received = sumOf(transfersIn);
+  const spentTotal = sumOf(spent);
+  return { carriedIn, received, spent: spentTotal, leftAtEnd: carriedIn + received - spentTotal, transfersIn, spentList: spent };
+}
+
 /** Today's date in India (YYYY-MM-DD). The server runs in UTC, the clinics in IST. */
 export function todayInIndia(now = new Date()): string {
   return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata" }).format(now);
