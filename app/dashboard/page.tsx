@@ -1,9 +1,12 @@
 import { requireAdmin } from "@/lib/auth";
 import { getStore } from "@/lib/data/store";
 import { cardDaysOverdue, expensesByCategory, inr, monthLabel, monthsIn, monthsWithData, pnl, SHARED_SPLIT, todayInIndia } from "@/lib/calc";
-import { CHART_THRESHOLD_MONTHS, CHART_WINDOW_MONTHS, previewTrendRows, shouldShowCharts, trendRows, type TrendRow } from "@/lib/trend";
+import { CHART_THRESHOLD_MONTHS, previewTrendRows, shouldShowCharts, trendRows, type TrendRow } from "@/lib/trend";
 import { TrendChart } from "@/components/TrendChart";
 import { ChartsTableToggle } from "@/components/ChartsTableToggle";
+import { AnalyticsSection } from "@/components/AnalyticsSection";
+import { AdvancedReports } from "@/components/AdvancedReports";
+import { parsePeriod, parseScope } from "@/lib/payee-report";
 import { CLINIC_LABEL } from "@/lib/types";
 import { MonthPicker, pickMonth } from "@/components/MonthPicker";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
@@ -17,7 +20,7 @@ const SCOPES = [
   ["ALL", "Combined"],
 ] as const;
 
-export default async function DashboardPage({ searchParams }: { searchParams: Promise<{ month?: string; preview?: string }> }) {
+export default async function DashboardPage({ searchParams }: { searchParams: Promise<{ month?: string; preview?: string; rp?: string; rc?: string }> }) {
   await requireAdmin();
   const d = await getStore().read();
   const months = monthsIn(d);
@@ -75,7 +78,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
         </p>
       )}
       {chartsOn ? (
-        <ChartsTableToggle charts={<TrendCharts rows={rows.slice(-CHART_WINDOW_MONTHS)} sample={preview} monthsOfData={monthsOfData} />} table={<TrendTables rows={rows} />} />
+        <ChartsTableToggle charts={<TrendCharts rows={rows} sample={preview} monthsOfData={monthsOfData} />} table={<TrendTables rows={rows} />} />
       ) : (
         <>
           <p className="muted">
@@ -88,6 +91,8 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
         </>
       )}
 
+      <AnalyticsSection receipts={d.pjReceipts} preview={preview} latestMonth={months[months.length - 1]} />
+
       <h2>Expenses by category, {monthLabel(month)} (both clinics)</h2>
       <div className="card">
         {cats.map(([c, v]) => (
@@ -98,6 +103,8 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
           </div>
         ))}
       </div>
+
+      <AdvancedReports d={d} month={month} period={parsePeriod(params.rp)} scope={parseScope(params.rc)} open={Boolean(params.rp || params.rc)} />
 
       {!isSupabaseConfigured && (
         <form action={resetDemoData} style={{ marginTop: 24 }}>
@@ -117,10 +124,11 @@ function TrendCharts({ rows, sample, monthsOfData }: { rows: TrendRow[]; sample:
   return (
     <>
       <p className="muted">
-        {sample ? <strong>Sample data.</strong> : <strong>Real numbers from {monthsOfData} months of data.</strong>} Last {rows.length} months. Tap a month to see its numbers, or switch to Table for every month.
+        {sample ? <strong>Sample data.</strong> : <strong>Real numbers from {monthsOfData} months of data.</strong>} Each chart shows the latest 12 months; switch it to All for older months, or tick vs last year to compare each month with the same month a year before. Tap a month to see its numbers.
       </p>
       <div className="chart-grid">
         <TrendChart
+          id="trend-income"
           title={t("Income and expenses, both clinics")}
           kind="bar"
           months={months}
@@ -131,6 +139,7 @@ function TrendCharts({ rows, sample, monthsOfData }: { rows: TrendRow[]; sample:
           notes={rows.map((r) => `Profit ${inr(r.profit.ALL)}`)}
         />
         <TrendChart
+          id="trend-profit"
           title={t("Profit by clinic")}
           kind="line"
           months={months}
@@ -140,12 +149,14 @@ function TrendCharts({ rows, sample, monthsOfData }: { rows: TrendRow[]; sample:
           ]}
         />
         <TrendChart
+          id="trend-cash"
           title={t("Cash collected, not yet deposited")}
           kind="bar"
           months={months}
           series={[{ name: "Not deposited", color: "var(--brand)", values: rows.map((r) => r.cashNotDeposited) }]}
         />
         <TrendChart
+          id="trend-upi"
           title={t("UPI in PappyJoe, not in bank")}
           kind="bar"
           months={months}
