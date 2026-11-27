@@ -615,3 +615,4 @@ a.button.secondary:hover { background: var(--brand-soft); color: var(--brand); }
   body { background: #fff; }
   .print-page .table-wrap { overflow: visible; }
 }
+.forecast .range { display: block; font-size: 12px; color: var(--muted); font-weight: 400; }
