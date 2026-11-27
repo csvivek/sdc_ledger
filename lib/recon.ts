@@ -224,8 +224,8 @@ export interface MonthRecon {
 
 const sum = <T,>(xs: T[], f: (x: T) => number) => xs.reduce((s, x) => s + f(x), 0);
 
-export function reconcileMonth(d: LedgerData, month: MonthKey): MonthRecon {
-  const m = matches(d);
+/** `m` can be passed in when reconciling many months, so the matching runs once. */
+export function reconcileMonth(d: LedgerData, month: MonthKey, m: Matches = matches(d)): MonthRecon {
   const rec = d.pjReceipts.filter((r) => monthOf(r.date) === month);
   const txns = d.bankTxns.filter((t) => monthOf(t.date) === month);
   const byClinic = (rs: PjReceipt[]) => ({
