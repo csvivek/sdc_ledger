@@ -16,6 +16,7 @@ import type {
   BankRule,
   BankTxn,
   CardPayment,
+  CategoryInfo,
   ClinicId,
   Expense,
   ImportBatch,
@@ -43,6 +44,15 @@ export interface LedgerStore {
   /** Adds a payee name, or returns the existing one with the same kind and name (any case). */
   addPayee(kind: PayeeKind, name: string, createdBy: string): Promise<Payee>;
   setPayeeActive(id: string, active: boolean): Promise<void>;
+
+  // Categories (admin only). LedgerData.categories holds only the active ones.
+  /** Every category, hidden ones too, in menu order. */
+  listCategories(): Promise<CategoryInfo[]>;
+  /** Adds a category at the end of the menu. The caller checks for duplicates first. */
+  addCategory(name: string): Promise<void>;
+  /** Renames a category; old expenses, bank payments and bank rules follow the new name. */
+  renameCategory(oldName: string, newName: string): Promise<void>;
+  setCategoryActive(name: string, active: boolean): Promise<void>;
   setReconReason(month: MonthKey, clinic: ClinicId, reason: string): Promise<void>;
   markCardCredited(id: string, creditedOn: string | undefined): Promise<CardPayment | undefined>;
   reset(): Promise<void>;
@@ -163,6 +173,52 @@ class JsonFileStore implements LedgerStore {
     }
   }
 
+  async listCategories() {
+    const d = await this.load();
+    const info = (name: string, active: boolean): CategoryInfo => ({
+      name,
+      active,
+      payeeKind: d.categoryPayeeKind[name],
+      needsInvoice: d.invoiceCategories.includes(name),
+    });
+    return [...d.categories.map((c) => info(c, true)), ...(d.hiddenCategories ?? []).map((c) => info(c, false))];
+  }
+
+  async addCategory(name: string) {
+    const d = await this.load();
+    d.categories.push(name);
+    await this.save(d);
+  }
+
+  async renameCategory(oldName: string, newName: string) {
+    const d = await this.load();
+    const swap = (c: string | undefined) => (c === oldName ? newName : c);
+    d.categories = d.categories.map((c) => swap(c)!);
+    d.hiddenCategories = (d.hiddenCategories ?? []).map((c) => swap(c)!);
+    d.invoiceCategories = d.invoiceCategories.map((c) => swap(c)!);
+    if (d.categoryPayeeKind[oldName]) {
+      d.categoryPayeeKind[newName] = d.categoryPayeeKind[oldName];
+      delete d.categoryPayeeKind[oldName];
+    }
+    for (const e of d.expenses) e.category = swap(e.category)!;
+    for (const t of d.bankTxns) t.category = swap(t.category);
+    for (const r of d.bankRules) r.category = swap(r.category);
+    await this.save(d);
+  }
+
+  async setCategoryActive(name: string, active: boolean) {
+    const d = await this.load();
+    const hidden = d.hiddenCategories ?? [];
+    if (active && hidden.includes(name)) {
+      d.hiddenCategories = hidden.filter((c) => c !== name);
+      d.categories.push(name);
+    } else if (!active && d.categories.includes(name)) {
+      d.categories = d.categories.filter((c) => c !== name);
+      d.hiddenCategories = [...hidden, name];
+    }
+    await this.save(d);
+  }
+
   async setReconReason(month: MonthKey, clinic: ClinicId, reason: string) {
     const d = await this.load();
     const rest = d.reconReasons.filter((r) => !(r.month === month && r.clinic === clinic));
@@ -264,8 +320,8 @@ class JsonFileStore implements LedgerStore {
   }
 }
 
-/** The JSON file also keeps the import history, which is not part of LedgerData. */
-type StoredData = LedgerData & { imports: ImportBatch[] };
+/** The JSON file also keeps the import history and hidden categories, which are not part of LedgerData. */
+type StoredData = LedgerData & { imports: ImportBatch[]; hiddenCategories?: string[] };
 
 let store: LedgerStore | undefined;
 export function getStore(): LedgerStore {
