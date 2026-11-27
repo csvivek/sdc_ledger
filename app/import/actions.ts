@@ -6,7 +6,7 @@ import { getStore } from "@/lib/data/store";
 import { readSheetRows } from "@/lib/import/read-sheet";
 import { isHdfcStatement, parseHdfc } from "@/lib/import/hdfc";
 import { isPappyJoePayments, parsePappyJoe } from "@/lib/import/pappyjoe";
-import { classify, findDuplicateRule } from "@/lib/import/rules";
+import { classify, findDuplicateRule, normalisePattern } from "@/lib/import/rules";
 import { BANK_KIND_LABEL, CLINIC_LABEL, type BankRule, type BankTxn, type ClinicOrShared, type ReconNote } from "@/lib/types";
 
 export interface FileResult {
@@ -97,9 +97,6 @@ const CLINIC_VALUES: ClinicOrShared[] = ["SDC1", "SDC2", "SHARED"];
 
 export type DebitFormState = { error?: string; saved?: boolean; notice?: string };
 
-/** Rule text compared the way the app matches it: case and extra spaces ignored. */
-const ruleKey = (pattern: string) => pattern.trim().replace(/\s+/g, " ").toUpperCase();
-
 /**
  * The admin says what a bank debit is, and optionally saves that as a rule for next time.
  * Returns a message instead of failing silently, so the form can say what went wrong.
@@ -135,7 +132,7 @@ export async function categoriseDebit(_prev: DebitFormState, formData: FormData)
     let ruleId: string | undefined;
     if (remember) {
       // Never add a second rule for the same text. The answer for this payment is still saved.
-      const existing = d.bankRules.find((r) => r.matchType === "contains" && ruleKey(r.pattern) === ruleKey(pattern));
+      const existing = d.bankRules.find((r) => r.matchType === "contains" && normalisePattern(r.pattern) === normalisePattern(pattern));
       if (existing) {
         const sameMeaning =
           existing.action === action && (existing.category ?? undefined) === category && (existing.clinic ?? undefined) === ruleClinic;
