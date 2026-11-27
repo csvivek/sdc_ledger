@@ -5,6 +5,8 @@ import { CHART_THRESHOLD_MONTHS, previewTrendRows, shouldShowCharts, trendRows, 
 import { TrendChart } from "@/components/TrendChart";
 import { ChartsTableToggle } from "@/components/ChartsTableToggle";
 import { AnalyticsSection } from "@/components/AnalyticsSection";
+import { AdvancedReports } from "@/components/AdvancedReports";
+import { parsePeriod, parseScope } from "@/lib/payee-report";
 import { CLINIC_LABEL } from "@/lib/types";
 import { MonthPicker, pickMonth } from "@/components/MonthPicker";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
@@ -18,7 +20,7 @@ const SCOPES = [
   ["ALL", "Combined"],
 ] as const;
 
-export default async function DashboardPage({ searchParams }: { searchParams: Promise<{ month?: string; preview?: string }> }) {
+export default async function DashboardPage({ searchParams }: { searchParams: Promise<{ month?: string; preview?: string; rp?: string; rc?: string }> }) {
   await requireAdmin();
   const d = await getStore().read();
   const months = monthsIn(d);
@@ -101,6 +103,8 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
           </div>
         ))}
       </div>
+
+      <AdvancedReports d={d} month={month} period={parsePeriod(params.rp)} scope={parseScope(params.rc)} open={Boolean(params.rp || params.rc)} />
 
       {!isSupabaseConfigured && (
         <form action={resetDemoData} style={{ marginTop: 24 }}>

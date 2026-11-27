@@ -566,3 +566,15 @@ code { word-break: break-all; }
 .chart-yaxis .chart-axis { fill: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
 .chart-readout li { flex-wrap: wrap; }
 .chart-yoy { flex-basis: 100%; padding-left: 18px; }
+
+/* Advanced reports (closed until clicked) */
+details.advanced { margin-top: 24px; }
+details.advanced > summary { font-size: 17px; }
+.report-filters .month-picker { margin-bottom: 8px; }
+.report-block { margin-top: 18px; }
+.report-block h3 .muted { font-weight: 400; }
+.bar-row.rank { grid-template-columns: minmax(120px, 220px) 1fr auto; }
+.bar-row.unassigned .bar { background: var(--muted); }
+.bar-row.unassigned .bar-label { color: var(--muted); font-style: italic; }
+.tag { display: inline-block; margin-left: 6px; padding: 1px 7px; border-radius: 999px; font-size: 11px; font-weight: 600; font-style: normal; color: var(--muted); border: 1px solid var(--line-strong); vertical-align: middle; }
+@media (max-width: 720px) { .bar-row.rank { grid-template-columns: 1fr auto; } }
