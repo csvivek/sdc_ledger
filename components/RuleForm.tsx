@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState } from "react";
+import { startTransition, useActionState, type FormEvent } from "react";
 import { deleteRule, saveRule, type RuleFormState } from "@/app/import/actions";
 import { CLINIC_LABEL, type BankRule } from "@/lib/types";
 
@@ -15,8 +15,17 @@ export function RuleForm({ rule, categories, used = 0 }: { rule?: BankRule; cate
   // Reset the fields after a successful add so the next rule starts empty.
   const formKey = rule ? rule.id : `new-${state.savedAt ?? 0}`;
 
+  // Submitting by hand (not <form action>) stops React clearing the fields, so a declined
+  // or failed save keeps what was typed. A successful add still starts empty (new formKey).
+  function submit(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    const submitter = (e.nativeEvent as SubmitEvent).submitter as HTMLButtonElement | null;
+    const fd = new FormData(e.currentTarget, submitter);
+    startTransition(() => (submitter?.value === "delete" ? remove(fd) : save(fd)));
+  }
+
   return (
-    <form key={formKey} action={save} className="rule-form">
+    <form key={formKey} onSubmit={submit} className="rule-form">
       {rule && <input type="hidden" name="id" value={rule.id} />}
       <label>
         Narration
@@ -64,13 +73,14 @@ export function RuleForm({ rule, categories, used = 0 }: { rule?: BankRule; cate
       <div className="rule-buttons">
         <button type="submit" className="small" disabled={busy}>{saving ? "Saving…" : rule ? "Save rule" : "Add rule"}</button>
         {rule && (
-          <button type="submit" formAction={remove} formNoValidate className="small secondary" disabled={busy}>
+          <button type="submit" name="intent" value="delete" formNoValidate className="small secondary" disabled={busy}>
             {deleting ? "Deleting…" : "Delete rule"}
           </button>
         )}
       </div>
       {!busy && state.error && <p className="err" role="alert">{state.error}</p>}
       {!busy && delState.error && <p className="err" role="alert">{delState.error}</p>}
+      {!busy && state.notice && <p className="notice" role="status">{state.notice}</p>}
       {!busy && state.ok && !state.error && <p className="ok" role="status">✓ {state.ok}</p>}
     </form>
   );

@@ -6,8 +6,8 @@ import { getStore } from "@/lib/data/store";
 import { readSheetRows } from "@/lib/import/read-sheet";
 import { isHdfcStatement, parseHdfc } from "@/lib/import/hdfc";
 import { isPappyJoePayments, parsePappyJoe } from "@/lib/import/pappyjoe";
-import { classify } from "@/lib/import/rules";
-import { CLINIC_LABEL, type BankRule, type BankTxn, type ClinicOrShared, type ReconNote } from "@/lib/types";
+import { classify, findDuplicateRule } from "@/lib/import/rules";
+import { BANK_KIND_LABEL, CLINIC_LABEL, type BankRule, type BankTxn, type ClinicOrShared, type ReconNote } from "@/lib/types";
 
 export interface FileResult {
   file: string;
@@ -156,7 +156,7 @@ export async function reapplyRules() {
   revalidatePath("/", "layout");
 }
 
-export type RuleFormState = { ok?: string; error?: string; savedAt?: number };
+export type RuleFormState = { ok?: string; error?: string; notice?: string; savedAt?: number };
 
 /** Reads and checks the rule fields from the edit or add form. */
 function readRule(formData: FormData, categories: string[]): Omit<BankRule, "id"> | string {
@@ -205,6 +205,13 @@ export async function saveRule(_prev: RuleFormState, formData: FormData): Promis
     const d = await store.read();
     const rule = readRule(formData, d.categories);
     if (typeof rule === "string") return { error: rule };
+    const dup = findDuplicateRule(rule, d.bankRules, id || undefined);
+    if (dup) {
+      const means = dup.action === "EXPENSE" ? dup.category : BANK_KIND_LABEL[dup.action];
+      return {
+        notice: `Not saved: there is already a rule for "${dup.pattern}" (#${dup.priority}, ${means}). Edit that rule instead.`,
+      };
+    }
 
     let rules: BankRule[];
     let relinked = 0;
@@ -233,6 +240,9 @@ export async function saveRule(_prev: RuleFormState, formData: FormData): Promis
     revalidatePath("/", "layout");
     return { ok: parts.join(" "), savedAt: Date.now() };
   } catch (err) {
+    // The database also refuses duplicate rule text (unique index, if applied), e.g. when two saves race.
+    if (/duplicate key|bank_rules_pattern_unique/i.test(String((err as Error)?.message ?? err)))
+      return { notice: "Not saved: a rule for this text already exists. Edit that rule instead." };
     console.error("save rule failed", err);
     return { error: "Could not save the rule. Please try again." };
   }
