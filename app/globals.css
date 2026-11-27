@@ -602,3 +602,10 @@ details.advanced > summary { font-size: 17px; }
 .entries-summary .total { font-size: 22px; font-weight: 700; }
 .entries-summary .split { display: flex; flex-wrap: wrap; gap: 2px 16px; margin-top: 4px; }
 .entries-summary .split b { font-variant-numeric: tabular-nums; }
+
+/* ---- Backups, export, forecast, staff, month close, recurring (PR: admin tools) ---- */
+a.button { display: inline-flex; align-items: center; justify-content: center; text-decoration: none; text-align: center; }
+a.button:hover { background: var(--brand-dark); color: #fff; }
+.button.secondary { background: #fff; color: var(--brand); }
+a.button.secondary:hover { background: var(--brand-soft); color: var(--brand); }
+.card.notice { border: 1px solid #f1d58a; }

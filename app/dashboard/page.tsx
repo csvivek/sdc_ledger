@@ -11,6 +11,8 @@ import { CLINIC_LABEL } from "@/lib/types";
 import { MonthPicker, pickMonth } from "@/components/MonthPicker";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
 import { resetDemoData } from "../actions";
+import { getExtras } from "@/lib/data/extras";
+import { backupAgeText, backupStatus } from "@/lib/backup";
 
 export const dynamic = "force-dynamic";
 
@@ -22,7 +24,8 @@ const SCOPES = [
 
 export default async function DashboardPage({ searchParams }: { searchParams: Promise<{ month?: string; preview?: string; rp?: string; rc?: string }> }) {
   await requireAdmin();
-  const d = await getStore().read();
+  const [d, backups] = await Promise.all([getStore().read(), getExtras().listBackups(1)]);
+  const backup = backups.ready ? backupStatus(backups.value[0]?.takenAt) : undefined;
   const months = monthsIn(d);
   const params = await searchParams;
   const month = pickMonth(months, params.month);
@@ -41,6 +44,11 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   return (
     <>
       <h1>Dashboard</h1>
+      {backup?.due && (
+        <p className="notice">
+          {backupAgeText(backup)}. <a href="/backup">Download a backup</a>
+        </p>
+      )}
       <MonthPicker months={months} active={month} basePath="/dashboard" />
 
       <div className="grid">

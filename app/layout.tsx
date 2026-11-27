@@ -22,6 +22,7 @@ const ADMIN_NAV: [string, string][] = [
   ["/card-income", "Card income"],
   ["/payees", "Payees"],
   ["/categories", "Categories"],
+  ["/backup", "Backup"],
 ];
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
