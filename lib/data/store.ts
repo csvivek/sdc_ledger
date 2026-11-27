@@ -16,6 +16,7 @@ import type {
   BankRule,
   BankTxn,
   CardPayment,
+  CategoryChange,
   CategoryInfo,
   ClinicId,
   Expense,
@@ -49,6 +50,12 @@ export interface LedgerStore {
   /** Date of the oldest entry this user can see, if any. */
   firstExpenseDate(): Promise<string | undefined>;
   addExpense(e: Omit<Expense, "id" | "enteredAt">): Promise<Expense>;
+  /** Admin only. Changes an expense's category and records the change (nothing when it is the same). Returns the old category, or undefined if not found. */
+  setExpenseCategory(id: string, category: string, changedBy: string): Promise<string | undefined>;
+  /** Admin only. Records a change made elsewhere (bank payments). */
+  logCategoryChange(c: Omit<CategoryChange, "id" | "changedAt">): Promise<void>;
+  /** Admin only. Changes for these items, newest first. */
+  categoryChanges(target: CategoryChange["target"], ids: string[]): Promise<CategoryChange[]>;
   /** Adds a payee name, or returns the existing one with the same kind and name (any case). */
   addPayee(kind: PayeeKind, name: string, createdBy: string): Promise<Payee>;
   setPayeeActive(id: string, active: boolean): Promise<void>;
@@ -311,6 +318,32 @@ class JsonFileStore implements LedgerStore {
     }
   }
 
+  async setExpenseCategory(id: string, category: string, changedBy: string) {
+    const d = await this.load();
+    const e = d.expenses.find((x) => x.id === id);
+    if (!e) return undefined;
+    const old = e.category;
+    if (old === category) return old;
+    e.category = category;
+    d.categoryChanges = [...(d.categoryChanges ?? []), change({ target: "expense", targetId: id, oldValue: old, newValue: category, changedBy })];
+    await this.save(d);
+    return old;
+  }
+
+  async logCategoryChange(c: Omit<CategoryChange, "id" | "changedAt">) {
+    const d = await this.load();
+    d.categoryChanges = [...(d.categoryChanges ?? []), change(c)];
+    await this.save(d);
+  }
+
+  async categoryChanges(target: CategoryChange["target"], ids: string[]) {
+    const d = await this.load();
+    const want = new Set(ids);
+    return (d.categoryChanges ?? [])
+      .filter((c) => c.target === target && want.has(c.targetId))
+      .sort((a, b) => b.changedAt.localeCompare(a.changedAt));
+  }
+
   async addBankRule(rule: Omit<BankRule, "id">) {
     const d = await this.load();
     const row: BankRule = { ...rule, id: `rule_${Date.now()}` };
@@ -343,7 +376,14 @@ class JsonFileStore implements LedgerStore {
 }
 
 /** The JSON file also keeps the import history and hidden categories, which are not part of LedgerData. */
-type StoredData = LedgerData & { imports: ImportBatch[]; hiddenCategories?: string[] };
+type StoredData = LedgerData & { imports: ImportBatch[]; hiddenCategories?: string[]; categoryChanges?: CategoryChange[] };
+
+let changeSeq = 0;
+const change = (c: Omit<CategoryChange, "id" | "changedAt">): CategoryChange => ({
+  ...c,
+  id: `chg_${Date.now()}_${changeSeq++}`,
+  changedAt: new Date().toISOString(),
+});
 
 let store: LedgerStore | undefined;
 export function getStore(): LedgerStore {

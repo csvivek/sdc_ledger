@@ -42,6 +42,10 @@ export default async function ReconciliationPage({ searchParams }: { searchParam
   const months = monthsIn(d);
   const month = pickMonth(months, (await searchParams).month);
   const r = reconcileMonth(d, month);
+  const bankChanges = await getStore().categoryChanges("bank", r.expenses.bankOnly.map((t) => t.id));
+  const lastBankChange = new Map<string, (typeof bankChanges)[number]>();
+  for (const c of bankChanges) if (!lastBankChange.has(c.targetId)) lastBankChange.set(c.targetId, c);
+  const userName = Object.fromEntries(d.users.map((u) => [u.id, u.name]));
   const users = new Map(d.users.map((u) => [u.id, u.name]));
   const payees = new Map(d.payees.map((p) => [p.id, p.name]));
 
@@ -320,7 +324,15 @@ export default async function ReconciliationPage({ searchParams }: { searchParam
                         {cp.name}
                         {cp.remark ? <span className="muted"> · {cp.remark}</span> : null}
                       </td>
-                      <td data-label="Category">{t.category}</td>
+                      <td data-label="Category" className="wrap cat-td">
+                        <span>{t.category}</span>
+                        {lastBankChange.has(t.id) && (
+                          <span className="cat-history muted">
+                            was {lastBankChange.get(t.id)!.oldValue} · changed by {userName[lastBankChange.get(t.id)!.changedBy] ?? "admin"} on{" "}
+                            {new Date(lastBankChange.get(t.id)!.changedAt).toLocaleDateString("en-IN", { day: "numeric", month: "short", timeZone: "Asia/Kolkata" })}
+                          </span>
+                        )}
+                      </td>
                       <td data-label="Clinic">{t.clinic ? CLINIC_LABEL[t.clinic] : ""}</td>
                       <td data-label="Amount" className="num strong">{inr(t.withdrawal)}</td>
                       <td className="actions">

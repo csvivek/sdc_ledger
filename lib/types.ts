@@ -49,6 +49,18 @@ export interface Expense {
   enteredAt: string; // ISO timestamp
 }
 
+/** One change of category on an expense typed into the app, or on a bank payment. */
+export interface CategoryChange {
+  id: string;
+  target: "expense" | "bank";
+  targetId: string;
+  /** What it was called at the time, e.g. "Rent" or "Petty cash to clinics". */
+  oldValue: string;
+  newValue: string;
+  changedBy: string; // user id
+  changedAt: string; // ISO timestamp
+}
+
 /** Cash withdrawn from the shared bank account into a clinic's petty cash. A transfer, not an expense. */
 export interface PettyCashTransfer {
   id: string;

@@ -6,6 +6,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { monthRange } from "../expense-view";
 import { createClient } from "../supabase/server";
 import type {
+  CategoryChange,
   BankDeposit,
   BankRule,
   BankTxn,
@@ -479,6 +480,54 @@ export class SupabaseLedgerStore implements LedgerStore {
       rowsRead: r.rows_read,
       rowsAdded: r.rows_added,
       importedAt: r.imported_at,
+    }));
+  }
+
+  async setExpenseCategory(id: string, category: string, changedBy: string) {
+    const sb = await this.client();
+    const { data: before, error: readErr } = await sb.from("expenses").select("category").eq("id", id).maybeSingle();
+    if (readErr) throw new Error(readErr.message);
+    if (!before) return undefined;
+    const old = before.category as string;
+    if (old === category) return old;
+    const { error } = await sb.from("expenses").update({ category }).eq("id", id);
+    if (error) throw new Error(error.message);
+    const { error: logErr } = await sb
+      .from("category_changes")
+      .insert({ target: "expense", target_id: id, old_value: old, new_value: category, changed_by: changedBy });
+    if (logErr) {
+      // No change without its history: put the old category back.
+      await sb.from("expenses").update({ category: old }).eq("id", id);
+      throw new Error(logErr.message);
+    }
+    return old;
+  }
+
+  async logCategoryChange(c: Omit<CategoryChange, "id" | "changedAt">) {
+    const sb = await this.client();
+    const { error } = await sb
+      .from("category_changes")
+      .insert({ target: c.target, target_id: c.targetId, old_value: c.oldValue, new_value: c.newValue, changed_by: c.changedBy });
+    if (error) throw new Error(error.message);
+  }
+
+  async categoryChanges(target: CategoryChange["target"], ids: string[]): Promise<CategoryChange[]> {
+    if (ids.length === 0) return [];
+    const sb = await this.client();
+    // A few ids per request keeps the query string short.
+    const out: Row[] = [];
+    for (let i = 0; i < ids.length; i += 100) {
+      const res = await sb.from("category_changes").select("*").eq("target", target).in("target_id", ids.slice(i, i + 100));
+      out.push(...rows(res, (r) => r));
+    }
+    return out.sort((a, b) => String(b.changed_at).localeCompare(String(a.changed_at))).map((r) => ({
+      id: r.id,
+      target: r.target,
+      targetId: r.target_id,
+      oldValue: r.old_value,
+      newValue: r.new_value,
+      changedBy: r.changed_by,
+      changedAt: r.changed_at,
     }));
   }
 
