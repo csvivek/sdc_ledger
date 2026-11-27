@@ -20,6 +20,7 @@ import type {
   ClinicId,
   Expense,
   ImportBatch,
+  ImportDeletion,
   LedgerData,
   MonthKey,
   Payee,
@@ -63,6 +64,18 @@ export interface LedgerStore {
   /** Adds PappyJoe receipts for one clinic; receipt numbers already stored are skipped. Card payments also go to card_payments. */
   importPappyJoe(clinic: ClinicId, rows: Omit<PjReceipt, "id" | "clinic">[], meta: ImportMeta): Promise<ImportResult>;
   listImports(limit: number): Promise<ImportBatch[]>;
+  /** Keeps a copy of an uploaded file. Returns false when file storage is not set up yet, so the import can go ahead without it. */
+  saveImportFile(path: string, data: Uint8Array, contentType: string): Promise<boolean>;
+  /** Removes a kept file (used when the import of that file fails). */
+  removeImportFile(path: string): Promise<void>;
+  /** The original file of one import, if it was kept. */
+  getImportFile(batchId: string): Promise<{ name: string; data: Uint8Array } | undefined>;
+  /**
+   * Deletes the imported bank rows of one month (source HDFC, no clinic), or the PappyJoe receipts of one clinic and month
+   * with the card payments made from them, all or nothing, and records who did it. Throws ImportDeleteError.
+   */
+  deleteImportedMonth(source: ImportBatch["source"], clinic: ClinicId | undefined, month: MonthKey, deletedBy: string): Promise<MonthDeleteResult>;
+  listImportDeletions(limit: number): Promise<ImportDeletion[]>;
   updateBankTxn(id: string, patch: Pick<BankTxn, "kind" | "category" | "clinic" | "ruleId">): Promise<void>;
   addBankRule(rule: Omit<BankRule, "id">, createdBy: string): Promise<BankRule>;
   updateBankRule(id: string, rule: Omit<BankRule, "id">): Promise<void>;
@@ -73,7 +86,19 @@ export interface LedgerStore {
 export interface ImportMeta {
   fileName: string;
   importedBy: string;
+  /** Where the original file was kept, if it was. */
+  filePath?: string;
 }
+
+export interface MonthDeleteResult {
+  rowsDeleted: number;
+  cardsDeleted: number;
+  moneyIn: number;
+  moneyOut: number;
+}
+
+export { ImportDeleteError, inMonth } from "./store-errors";
+import { ImportDeleteError, inMonth } from "./store-errors";
 
 export interface ImportResult {
   read: number;
@@ -93,6 +118,7 @@ const span = (dates: string[]) => {
 const FILE = process.env.VERCEL
   ? path.join(os.tmpdir(), "sdc-ledger", "store.json")
   : path.join(process.cwd(), "data", "store.json");
+const FILES_DIR = path.join(path.dirname(FILE), "import-files");
 
 class JsonFileStore implements LedgerStore {
   private async load(): Promise<StoredData> {
@@ -252,7 +278,7 @@ class JsonFileStore implements LedgerStore {
     const have = new Set(d.bankTxns.map((t) => t.fingerprint));
     const fresh = rows.filter((r) => !have.has(r.fingerprint));
     fresh.forEach((r, i) => d.bankTxns.push({ ...r, id: `txn_${Date.now()}_${i}` }));
-    this.addBatch(d, { source: "HDFC", fileName: meta.fileName, ...span(rows.map((r) => r.date)), rowsRead: rows.length, rowsAdded: fresh.length });
+    this.addBatch(d, { source: "HDFC", fileName: meta.fileName, filePath: meta.filePath, ...span(rows.map((r) => r.date)), rowsRead: rows.length, rowsAdded: fresh.length });
     await this.save(d);
     return { read: rows.length, added: fresh.length, skipped: rows.length - fresh.length };
   }
@@ -266,11 +292,18 @@ class JsonFileStore implements LedgerStore {
       const id = `pj_${Date.now()}_${i}`;
       d.pjReceipts.push({ ...r, id, clinic });
       if (r.mode === "CARD" && r.amount > 0) {
-        d.cardPayments.push({ id: `card_${id}`, date: r.date, clinic, patientRef: `${r.patientName} · receipt ${r.receiptNo}`, amount: r.amount });
+        d.cardPayments.push({
+          id: `card_${id}`,
+          date: r.date,
+          clinic,
+          patientRef: `${r.patientName} · receipt ${r.receiptNo}`,
+          amount: r.amount,
+          pjReceiptId: id,
+        });
         cardsAdded++;
       }
     });
-    this.addBatch(d, { source: "PAPPYJOE", clinic, fileName: meta.fileName, ...span(rows.map((r) => r.date)), rowsRead: rows.length, rowsAdded: fresh.length });
+    this.addBatch(d, { source: "PAPPYJOE", clinic, fileName: meta.fileName, filePath: meta.filePath, ...span(rows.map((r) => r.date)), rowsRead: rows.length, rowsAdded: fresh.length });
     await this.save(d);
     return { read: rows.length, added: fresh.length, skipped: rows.length - fresh.length, cardsAdded };
   }
@@ -278,6 +311,90 @@ class JsonFileStore implements LedgerStore {
   async listImports(limit: number) {
     const d = await this.load();
     return [...d.imports].sort((a, b) => b.importedAt.localeCompare(a.importedAt)).slice(0, limit);
+  }
+
+  private filePathOnDisk(p: string) {
+    const full = path.resolve(FILES_DIR, p);
+    if (!full.startsWith(path.resolve(FILES_DIR) + path.sep)) throw new Error("bad file path");
+    return full;
+  }
+
+  async saveImportFile(p: string, data: Uint8Array) {
+    const full = this.filePathOnDisk(p);
+    await fs.mkdir(path.dirname(full), { recursive: true });
+    await fs.writeFile(full, data);
+    return true;
+  }
+
+  async removeImportFile(p: string) {
+    await fs.rm(this.filePathOnDisk(p), { force: true });
+  }
+
+  async getImportFile(batchId: string) {
+    const b = (await this.load()).imports.find((x) => x.id === batchId);
+    if (!b?.filePath) return undefined;
+    try {
+      return { name: b.fileName, data: new Uint8Array(await fs.readFile(this.filePathOnDisk(b.filePath))) };
+    } catch {
+      return undefined;
+    }
+  }
+
+  async deleteImportedMonth(source: ImportBatch["source"], clinic: ClinicId | undefined, month: MonthKey, deletedBy: string) {
+    if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(month)) throw new ImportDeleteError("BAD_REQUEST");
+    if (source === "HDFC" ? clinic !== undefined : clinic !== "SDC1" && clinic !== "SDC2") throw new ImportDeleteError("BAD_REQUEST");
+    // One load and one save: the change is all or nothing, like the database function.
+    const d = await this.load();
+    let res: MonthDeleteResult;
+    let dates: string[];
+    if (source === "HDFC") {
+      const gone = d.bankTxns.filter((t) => inMonth(t.date, month));
+      if (!gone.length) throw new ImportDeleteError("NOTHING_TO_DELETE");
+      d.bankTxns = d.bankTxns.filter((t) => !inMonth(t.date, month));
+      dates = gone.map((t) => t.date);
+      res = {
+        rowsDeleted: gone.length,
+        cardsDeleted: 0,
+        moneyIn: round2(gone.reduce((a, t) => a + t.deposit, 0)),
+        moneyOut: round2(gone.reduce((a, t) => a + t.withdrawal, 0)),
+      };
+    } else {
+      const gone = d.pjReceipts.filter((r) => r.clinic === clinic && inMonth(r.date, month));
+      const ids = new Set(gone.map((r) => r.id));
+      const cards = d.cardPayments.filter((c) => c.pjReceiptId && ids.has(c.pjReceiptId));
+      const credited = cards.filter((c) => c.creditedOn).length;
+      if (credited) throw new ImportDeleteError("CREDITED_CARDS", credited);
+      if (!gone.length) throw new ImportDeleteError("NOTHING_TO_DELETE");
+      d.pjReceipts = d.pjReceipts.filter((r) => !ids.has(r.id));
+      d.cardPayments = d.cardPayments.filter((c) => !(c.pjReceiptId && ids.has(c.pjReceiptId)));
+      dates = gone.map((r) => r.date);
+      res = {
+        rowsDeleted: gone.length,
+        cardsDeleted: cards.length,
+        moneyIn: round2(gone.filter((r) => r.amount > 0).reduce((a, r) => a + r.amount, 0)),
+        moneyOut: round2(-gone.filter((r) => r.amount < 0).reduce((a, r) => a + r.amount, 0)),
+      };
+    }
+    const s = span(dates);
+    d.importDeletions ??= [];
+    d.importDeletions.push({
+      id: `del_${Date.now()}_${d.importDeletions.length}`,
+      source,
+      clinic,
+      month,
+      ...res,
+      firstDate: s.firstDate,
+      lastDate: s.lastDate,
+      deletedBy,
+      deletedAt: new Date().toISOString(),
+    });
+    await this.save(d);
+    return res;
+  }
+
+  async listImportDeletions(limit: number) {
+    const d = await this.load();
+    return [...(d.importDeletions ?? [])].sort((a, b) => b.deletedAt.localeCompare(a.deletedAt)).slice(0, limit);
   }
 
   async updateBankTxn(id: string, patch: Pick<BankTxn, "kind" | "category" | "clinic" | "ruleId">) {
@@ -321,7 +438,9 @@ class JsonFileStore implements LedgerStore {
 }
 
 /** The JSON file also keeps the import history and hidden categories, which are not part of LedgerData. */
-type StoredData = LedgerData & { imports: ImportBatch[]; hiddenCategories?: string[] };
+type StoredData = LedgerData & { imports: ImportBatch[]; hiddenCategories?: string[]; importDeletions?: ImportDeletion[] };
+
+const round2 = (n: number) => Math.round(n * 100) / 100;
 
 let store: LedgerStore | undefined;
 export function getStore(): LedgerStore {
