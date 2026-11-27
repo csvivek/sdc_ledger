@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from "next";
+import Image from "next/image";
 import { Nav } from "@/components/Nav";
 import { currentUser } from "@/lib/auth";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
@@ -33,7 +34,10 @@ export default async function RootLayout({ children }: { children: React.ReactNo
         )}
         <header className="top">
           <strong className="brand">
-            <span className="brand-mark" aria-hidden="true">SDC</span> Ledger
+            <span className="brand-logo">
+              <Image src="/sdc-logo.png" alt="Sarada Dental Care" width={600} height={225} priority />
+            </span>
+            Ledger
           </strong>
           {user && (
             <form action={logout} className="who">

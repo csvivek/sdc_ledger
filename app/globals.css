@@ -58,17 +58,18 @@ a { color: var(--brand); }
   color: #fff;
 }
 .brand { display: inline-flex; align-items: center; gap: 8px; font-size: 17px; letter-spacing: 0.2px; }
-.brand-mark {
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.5px;
-  background: rgba(255, 255, 255, 0.18);
-  border-radius: 6px;
-  padding: 3px 6px;
+.brand-logo {
+  display: inline-flex;
+  align-items: center;
+  background: #fff;
+  border-radius: 8px;
+  padding: 4px 8px;
 }
+.brand-logo img { display: block; height: 28px; width: auto; }
+.login-logo { display: block; width: min(280px, 80%); height: auto; margin: 0 auto 16px; }
 .top .who { display: flex; gap: 12px; align-items: center; font-size: 14px; min-width: 0; }
 .top .who-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; opacity: 0.9; }
-.top .link { color: #fff; min-height: 40px; padding: 0 4px; }
+.top .link { color: #fff; min-height: 40px; padding: 0 4px; white-space: nowrap; }
 
 .nav {
   background: var(--card);
