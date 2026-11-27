@@ -95,8 +95,13 @@ export async function importFiles(_prev: ImportState, formData: FormData): Promi
 
 const CLINIC_VALUES: ClinicOrShared[] = ["SDC1", "SDC2", "SHARED"];
 
-/** The admin says what a bank debit is, and optionally saves that as a rule for next time. */
-export async function categoriseDebit(formData: FormData) {
+export type DebitFormState = { error?: string; saved?: boolean };
+
+/**
+ * The admin says what a bank debit is, and optionally saves that as a rule for next time.
+ * Returns a message instead of failing silently, so the form can say what went wrong.
+ */
+export async function categoriseDebit(_prev: DebitFormState, formData: FormData): Promise<DebitFormState> {
   const user = await requireAdmin();
   const id = String(formData.get("id") ?? "");
   const choice = String(formData.get("choice") ?? "");
@@ -105,34 +110,51 @@ export async function categoriseDebit(formData: FormData) {
   const remember = formData.get("remember") === "1";
   const pattern = String(formData.get("pattern") ?? "").trim().replace(/\s+/g, " ").slice(0, 200);
 
-  const store = getStore();
-  const d = await store.read();
-  const txn = d.bankTxns.find((t) => t.id === id);
-  if (!txn || !(txn.withdrawal > 0)) return;
+  try {
+    const store = getStore();
+    const d = await store.read();
+    const txn = d.bankTxns.find((t) => t.id === id);
+    if (!txn || !(txn.withdrawal > 0)) return { error: "This bank payment was not found. Reload the page and try again." };
 
-  let action: BankRule["action"];
-  let category: string | undefined;
-  if (choice.startsWith("EXPENSE:")) {
-    category = choice.slice("EXPENSE:".length);
-    if (!d.categories.includes(category)) return;
-    action = "EXPENSE";
-  } else if (choice === "PETTY_CASH" || choice === "TRANSFER_OUT") {
-    action = choice;
-  } else return;
+    let action: BankRule["action"];
+    let category: string | undefined;
+    if (choice.startsWith("EXPENSE:")) {
+      category = choice.slice("EXPENSE:".length);
+      if (!d.categories.includes(category)) return { error: `"${category}" is no longer an expense category. Pick another.` };
+      action = "EXPENSE";
+    } else if (choice === "PETTY_CASH" || choice === "TRANSFER_OUT") {
+      action = choice;
+    } else return { error: "Pick what this payment is." };
+    if (remember && pattern.length < 2) return { error: "Type at least 2 letters to look for, or untick Remember." };
 
-  let ruleId: string | undefined;
-  if (remember && pattern.length >= 2) {
-    // Clinic is only stored on the rule when it is not written in the narration.
-    const rule = await store.addBankRule(
-      { pattern, matchType: "contains", action, category, clinic: action === "EXPENSE" ? clinic : undefined, priority: 50 },
-      user.id,
-    );
-    ruleId = rule.id;
-    d.bankRules.push(rule);
+    const ruleClinic = action === "EXPENSE" ? clinic : undefined;
+    let ruleId: string | undefined;
+    if (remember) {
+      // Reuse a rule that already says exactly this, so a repeated Save never adds the same rule twice.
+      const same = d.bankRules.find(
+        (r) =>
+          r.matchType === "contains" &&
+          r.pattern.toUpperCase() === pattern.toUpperCase() &&
+          r.action === action &&
+          (r.category ?? undefined) === category &&
+          (r.clinic ?? undefined) === ruleClinic,
+      );
+      if (same) ruleId = same.id;
+      else {
+        // Clinic is only stored on the rule when it is not written in the narration.
+        const rule = await store.addBankRule({ pattern, matchType: "contains", action, category, clinic: ruleClinic, priority: 50 }, user.id);
+        ruleId = rule.id;
+        d.bankRules.push(rule);
+      }
+    }
+    await store.updateBankTxn(id, { kind: action, category, clinic: ruleClinic, ruleId });
+    if (ruleId) await reapply(d.bankTxns.filter((t) => t.id !== id), d.bankRules);
+  } catch (err) {
+    console.error("categoriseDebit failed", id, err);
+    return { error: "Could not save. Check your connection and press Save again." };
   }
-  await store.updateBankTxn(id, { kind: action, category, clinic: action === "EXPENSE" ? clinic : undefined, ruleId });
-  if (ruleId) await reapply(d.bankTxns.filter((t) => t.id !== id), d.bankRules);
   revalidatePath("/", "layout");
+  return { saved: true };
 }
 
 /** Runs the rules again over debits that are still waiting for an answer. Never changes a debit someone already decided. */
