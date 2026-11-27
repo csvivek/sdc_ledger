@@ -179,6 +179,15 @@ export interface ReconNote {
   note: string;
 }
 
+/** One expense category as the admin's Categories page shows it. */
+export interface CategoryInfo {
+  name: string;
+  /** Hidden categories stay on old entries and in reports but are no longer offered. */
+  active: boolean;
+  payeeKind?: PayeeKind;
+  needsInvoice: boolean;
+}
+
 export interface LedgerData {
   users: User[];
   categories: string[];

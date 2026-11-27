@@ -12,6 +12,7 @@ import type {
   PjReceipt,
   ReconNote,
   CardPayment,
+  CategoryInfo,
   ClinicId,
   Expense,
   LedgerData,
@@ -266,6 +267,42 @@ export class SupabaseLedgerStore implements LedgerStore {
   async setPayeeActive(id: string, active: boolean) {
     const sb = await this.client();
     const { error } = await sb.from("payees").update({ active }).eq("id", id);
+    if (error) throw new Error(error.message);
+  }
+
+  async listCategories(): Promise<CategoryInfo[]> {
+    const sb = await this.client();
+    const { data, error } = await sb.from("categories").select("*").order("sort_order").order("name");
+    if (error) throw new Error(error.message);
+    return (data ?? []).map((r) => ({
+      name: r.name,
+      active: r.active,
+      payeeKind: r.payee_kind ?? undefined,
+      needsInvoice: Boolean(r.needs_invoice),
+    }));
+  }
+
+  async addCategory(name: string) {
+    const sb = await this.client();
+    const { data: last, error: lastErr } = await sb.from("categories").select("sort_order").order("sort_order", { ascending: false }).limit(1);
+    if (lastErr) throw new Error(lastErr.message);
+    const sortOrder = Number(last?.[0]?.sort_order ?? 0) + 1;
+    const { error } = await sb.from("categories").insert({ name, sort_order: sortOrder });
+    if (error) throw new Error(error.message);
+  }
+
+  async renameCategory(oldName: string, newName: string) {
+    const sb = await this.client();
+    // Expenses, bank payments and bank rules reference the name with
+    // "on update cascade", so they follow the new name automatically.
+    const { data, error } = await sb.from("categories").update({ name: newName }).eq("name", oldName).select("name");
+    if (error) throw new Error(error.message);
+    if (!data?.length) throw new Error(`Category ${oldName} was not found`);
+  }
+
+  async setCategoryActive(name: string, active: boolean) {
+    const sb = await this.client();
+    const { error } = await sb.from("categories").update({ active }).eq("name", name);
     if (error) throw new Error(error.message);
   }
 

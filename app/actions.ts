@@ -143,6 +143,87 @@ export async function togglePayeeActive(formData: FormData) {
   revalidatePath("/payees");
 }
 
+// ---------------------------------------------------------------------------
+// Expense categories (admin only)
+// ---------------------------------------------------------------------------
+
+export type CategoryFormState = { ok?: string; error?: string };
+
+/** Used when a bank payment has no category yet, so it must always exist and stay on offer. */
+const FALLBACK_CATEGORY = "Miscellaneous";
+
+const cleanCategoryName = (v: FormDataEntryValue | null) => String(v ?? "").trim().replace(/\s+/g, " ");
+
+function checkCategoryName(name: string): string | undefined {
+  if (!name) return "Type a name for the category.";
+  if (name.length > 60) return "Please keep the name under 60 letters.";
+}
+
+const sameName = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
+
+export async function addCategoryAdmin(_prev: CategoryFormState, formData: FormData): Promise<CategoryFormState> {
+  await requireAdmin();
+  const name = cleanCategoryName(formData.get("name"));
+  const bad = checkCategoryName(name);
+  if (bad) return { error: bad };
+  try {
+    const all = await getStore().listCategories();
+    const existing = all.find((c) => sameName(c.name, name));
+    if (existing) {
+      return {
+        error: existing.active
+          ? `"${existing.name}" is already in the list, so there is nothing to add.`
+          : `"${existing.name}" is already in the list but hidden. Use "Show again" below to bring it back.`,
+      };
+    }
+    await getStore().addCategory(name);
+  } catch (err) {
+    console.error("addCategoryAdmin failed", err);
+    return { error: "Could not add the category. Please try again." };
+  }
+  revalidatePath("/", "layout");
+  return { ok: `Added "${name}". It is now offered on the expense form and for bank payments.` };
+}
+
+export async function renameCategoryAdmin(_prev: CategoryFormState, formData: FormData): Promise<CategoryFormState> {
+  await requireAdmin();
+  const oldName = String(formData.get("oldName") ?? "");
+  const name = cleanCategoryName(formData.get("name"));
+  const bad = checkCategoryName(name);
+  if (bad) return { error: bad };
+  if (name === oldName) return {};
+  if (oldName === FALLBACK_CATEGORY) return { error: `"${FALLBACK_CATEGORY}" is used for anything not yet sorted, so it keeps its name.` };
+  try {
+    const all = await getStore().listCategories();
+    if (!all.some((c) => c.name === oldName)) return { error: "That category was not found. Please refresh the page." };
+    const clash = all.find((c) => c.name !== oldName && sameName(c.name, name));
+    if (clash) return { error: `"${clash.name}" already exists${clash.active ? "" : " (hidden)"}. Please pick a different name.` };
+    await getStore().renameCategory(oldName, name);
+  } catch (err) {
+    console.error("renameCategoryAdmin failed", err);
+    return { error: "Could not rename. Please try again." };
+  }
+  revalidatePath("/", "layout");
+  return { ok: `Renamed to "${name}". Old entries now show the new name too.` };
+}
+
+export async function toggleCategoryActive(_prev: CategoryFormState, formData: FormData): Promise<CategoryFormState> {
+  await requireAdmin();
+  const name = String(formData.get("name") ?? "");
+  const active = formData.get("active") === "1";
+  if (!active && name === FALLBACK_CATEGORY) return { error: `"${FALLBACK_CATEGORY}" is used for anything not yet sorted, so it cannot be hidden.` };
+  try {
+    const all = await getStore().listCategories();
+    if (!all.some((c) => c.name === name)) return { error: "That category was not found. Please refresh the page." };
+    await getStore().setCategoryActive(name, active);
+  } catch (err) {
+    console.error("toggleCategoryActive failed", err);
+    return { error: "Could not save. Please try again." };
+  }
+  revalidatePath("/", "layout");
+  return { ok: active ? `"${name}" is offered again.` : `"${name}" is hidden. Old entries keep it.` };
+}
+
 export async function toggleCardCredited(formData: FormData) {
   await requireAdmin();
   const id = String(formData.get("id") ?? "");
