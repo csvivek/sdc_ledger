@@ -23,6 +23,9 @@
   --series-expenses: #f47230;
   --series-sdc1: #6a4ce2;
   --series-sdc2: #00b894;
+  --series-cash: #f47230;
+  --series-upi: #257de0;
+  --series-card: #6a4ce2;
 }
 
 * { box-sizing: border-box; }
@@ -538,3 +541,9 @@ code { word-break: break-all; }
 .rename-form { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .rename-form input[type="text"] { flex: 1 1 180px; min-width: 0; }
 .row-actions { white-space: nowrap; }
+
+/* Card machine quote boxes on the dashboard */
+.quote-inputs { display: grid; gap: 0 12px; grid-template-columns: 1fr; margin-bottom: 8px; }
+@media (min-width: 600px) { .quote-inputs { grid-template-columns: 1fr 1fr; } }
+.quote-inputs label { margin-top: 6px; }
+.mode-cell small { display: block; color: var(--muted); font-weight: 400; }

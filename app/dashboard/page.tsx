@@ -4,6 +4,7 @@ import { cardDaysOverdue, expensesByCategory, inr, monthLabel, monthsIn, monthsW
 import { CHART_THRESHOLD_MONTHS, CHART_WINDOW_MONTHS, previewTrendRows, shouldShowCharts, trendRows, type TrendRow } from "@/lib/trend";
 import { TrendChart } from "@/components/TrendChart";
 import { ChartsTableToggle } from "@/components/ChartsTableToggle";
+import { AnalyticsSection } from "@/components/AnalyticsSection";
 import { CLINIC_LABEL } from "@/lib/types";
 import { MonthPicker, pickMonth } from "@/components/MonthPicker";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
@@ -87,6 +88,8 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
           <TrendTable rows={rows} />
         </>
       )}
+
+      <AnalyticsSection receipts={d.pjReceipts} preview={preview} latestMonth={months[months.length - 1]} />
 
       <h2>Expenses by category, {monthLabel(month)} (both clinics)</h2>
       <div className="card">

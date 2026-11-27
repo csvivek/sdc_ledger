@@ -18,6 +18,8 @@ interface Props {
   series: ChartSeries[];
   /** One extra line per month for the readout, e.g. "Profit ₹1,20,000". */
   notes?: string[];
+  /** How values read: rupees (default), whole counts, or numbers with one decimal (e.g. visits per day). */
+  format?: "inr" | "count" | "decimal";
 }
 
 const H = 190; // plot height
@@ -35,7 +37,9 @@ function barPath(x: number, w: number, yVal: number, yZero: number) {
   return `M${x},${yZero}V${yVal - r}Q${x},${yVal} ${x + r},${yVal}H${x + w - r}Q${x + w},${yVal} ${x + w},${yVal - r}V${yZero}Z`;
 }
 
-export function TrendChart({ title, kind, months, series, notes }: Props) {
+export function TrendChart({ title, kind, months, series, notes, format = "inr" }: Props) {
+  const full = (v: number) => (format === "inr" ? inr(v) : format === "count" ? Math.round(v).toLocaleString("en-IN") : (Math.round(v * 10) / 10).toString());
+  const axis = (v: number) => (format === "inr" ? compactInr(v) : v.toLocaleString("en-IN"));
   const wrap = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(340);
   const [sel, setSel] = useState(months.length - 1);
@@ -82,7 +86,7 @@ export function TrendChart({ title, kind, months, series, notes }: Props) {
             <li key={s.name}>
               <span className={`chart-key ${kind}`} style={{ background: s.color }} aria-hidden />
               <span className="chart-key-name">{s.name}</span>
-              <span className={`chart-key-value ${s.values[sel] < 0 ? "neg" : ""}`}>{inr(s.values[sel])}</span>
+              <span className={`chart-key-value ${s.values[sel] < 0 ? "neg" : ""}`}>{full(s.values[sel])}</span>
             </li>
           ))}
         </ul>
@@ -100,7 +104,7 @@ export function TrendChart({ title, kind, months, series, notes }: Props) {
             <g key={t}>
               <line x1={M.left} x2={width - M.right} y1={y(t)} y2={y(t)} className={t === 0 ? "chart-zero" : "chart-gridline"} />
               <text x={M.left - 6} y={y(t)} dy="0.32em" textAnchor="end" className="chart-axis">
-                {compactInr(t)}
+                {axis(t)}
               </text>
             </g>
           ))}
