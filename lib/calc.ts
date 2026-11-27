@@ -9,9 +9,8 @@ export const SHARED_SPLIT: Record<ClinicId, number> = { SDC1: 0.5, SDC2: 0.5 };
 
 export const monthOf = (date: string): MonthKey => date.slice(0, 7);
 
-/** Months that have any data, plus the current month so a new, empty database still has one to show. */
-export function monthsIn(d: LedgerData): MonthKey[] {
-  const now = new Date().toISOString().slice(0, 7);
+/** Months that hold at least one PappyJoe, expense or bank record, oldest first. */
+export function monthsWithData(d: LedgerData): MonthKey[] {
   return [
     ...new Set([
       ...d.pappyJoe.map((p) => p.month),
@@ -19,9 +18,14 @@ export function monthsIn(d: LedgerData): MonthKey[] {
       ...d.bankDeposits.map((b) => monthOf(b.date)),
       ...d.bankTxns.map((t) => monthOf(t.date)),
       ...d.pjReceipts.map((r) => monthOf(r.date)),
-      now,
     ]),
   ].sort();
+}
+
+/** Months that have any data, plus the current month so a new, empty database still has one to show. */
+export function monthsIn(d: LedgerData): MonthKey[] {
+  const now = new Date().toISOString().slice(0, 7);
+  return [...new Set([...monthsWithData(d), now])].sort();
 }
 
 export function monthLabel(m: MonthKey) {
