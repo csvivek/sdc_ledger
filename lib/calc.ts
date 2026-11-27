@@ -127,22 +127,56 @@ export function pettyCash(d: LedgerData, clinic: ClinicId) {
 
 /**
  * One clinic's petty cash for one month. Leftover cash stays in the clinic box,
- * so the month starts with whatever was left at the end of the month before
- * (the opening amount plus everything received, minus everything spent, before
- * this month). The Reconcile page uses this too, so both pages always agree.
+ * so a month starts with what the month before ended with:
+ * - the cash counted at the end of the latest earlier month that was counted,
+ *   plus what came in and went out after it, or
+ * - with no earlier count, the opening amount plus everything before.
+ * The month then ends on its own count if there is one, otherwise on the
+ * expected balance. The Reconcile page uses this too, so both pages agree.
  */
 export function pettyCashMonth(d: LedgerData, clinic: ClinicId, month: MonthKey) {
   const all = pettyCash(d, clinic);
-  const before = (date: string) => monthOf(date) < month;
+  const counts = (d.pettyCounts ?? []).filter((c) => c.clinic === clinic);
+  const lastCount = counts.filter((c) => c.month < month).sort((a, b) => a.month.localeCompare(b.month)).pop();
+  const after = lastCount?.month ?? "";
+  const between = (date: string) => monthOf(date) > after && monthOf(date) < month;
   const inMonth = (date: string) => monthOf(date) === month;
   const sumOf = (xs: { amount: number }[]) => xs.reduce((s, x) => s + x.amount, 0);
+
   const transfersIn = all.transfersIn.filter((t) => inMonth(t.date));
   const spent = all.spent.filter((e) => inMonth(e.date));
   const carriedIn =
-    all.opening + sumOf(all.transfersIn.filter((t) => before(t.date))) - sumOf(all.spent.filter((e) => before(e.date)));
+    (lastCount ? lastCount.counted : all.opening) +
+    sumOf(all.transfersIn.filter((t) => between(t.date))) -
+    sumOf(all.spent.filter((e) => between(e.date)));
   const received = sumOf(transfersIn);
   const spentTotal = sumOf(spent);
-  return { carriedIn, received, spent: spentTotal, leftAtEnd: carriedIn + received - spentTotal, transfersIn, spentList: spent };
+  const expected = carriedIn + received - spentTotal;
+  const count = counts.find((c) => c.month === month);
+  return {
+    carriedIn,
+    received,
+    spent: spentTotal,
+    /** What should be in the box at month end, from the movements. */
+    expected,
+    count,
+    /** Counted minus expected: positive = more cash than expected. 0 when not counted. */
+    difference: count ? count.counted - expected : 0,
+    /** What the next month starts with: the count if there is one. */
+    leftAtEnd: count ? count.counted : expected,
+    transfersIn,
+    spentList: spent,
+  };
+}
+
+/** All time, with every month-end count difference added as an adjustment. */
+export function pettyCashAllTime(d: LedgerData, clinic: ClinicId) {
+  const all = pettyCash(d, clinic);
+  const adjustments = (d.pettyCounts ?? [])
+    .filter((c) => c.clinic === clinic)
+    .map((c) => ({ count: c, difference: pettyCashMonth(d, clinic, c.month).difference }));
+  const adjusted = adjustments.reduce((s, a) => s + a.difference, 0);
+  return { ...all, adjustments, adjusted, balance: all.balance + adjusted };
 }
 
 /** Today's date in India (YYYY-MM-DD). The server runs in UTC, the clinics in IST. */

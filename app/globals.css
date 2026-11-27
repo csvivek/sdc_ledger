@@ -538,3 +538,12 @@ code { word-break: break-all; }
 .rename-form { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .rename-form input[type="text"] { flex: 1 1 180px; min-width: 0; }
 .row-actions { white-space: nowrap; }
+
+/* ---------- Petty cash month-end count ---------- */
+.count-form { margin-top: 8px; }
+.count-form label { display: block; margin-top: 10px; }
+.count-form select,
+.count-form input[name="otherReason"],
+.count-form input[name="note"] { width: 100%; margin-top: 6px; }
+.count-form .amount-input input { width: 100%; }
+.count-line { display: flex; justify-content: space-between; gap: 12px; padding: 4px 0; font-size: 15px; }

@@ -184,6 +184,8 @@ export default async function ReconciliationPage({ searchParams }: { searchParam
                 <th className="num">Start of month</th>
                 <th className="num">Received</th>
                 <th className="num">Spent</th>
+                <th className="num">Expected</th>
+                <th className="num">Counted</th>
                 <th className="num">End of month</th>
               </tr>
             </thead>
@@ -196,6 +198,23 @@ export default async function ReconciliationPage({ searchParams }: { searchParam
                     <td data-label="Start of month" className="num">{inr(p.opening)}</td>
                     <td data-label="Received" className="num">{inr(p.received)}</td>
                     <td data-label="Spent" className="num">{inr(p.spent)}</td>
+                    <td data-label="Expected" className="num">{inr(p.expected)}</td>
+                    <td data-label="Counted" className="num">
+                      {p.counted === undefined ? (
+                        <span className="muted">Not counted</span>
+                      ) : (
+                        <>
+                          {inr(p.counted)}
+                          {Math.abs(p.difference) >= 0.005 && (
+                            <span className="neg">
+                              {" "}
+                              ({p.difference > 0 ? "+" : "−"}
+                              {inr(Math.abs(p.difference))})
+                            </span>
+                          )}
+                        </>
+                      )}
+                    </td>
                     <td data-label="End of month" className={`num ${p.closing < 0 ? "neg" : ""}`}>{inr(p.closing)}</td>
                   </tr>
                 );
@@ -205,8 +224,9 @@ export default async function ReconciliationPage({ searchParams }: { searchParam
         </div>
         <p className="muted">
           Received = PETTY CASH transfers to the doctor in the bank statement, split equally between the clinics. Spent = expenses
-          entered in the portal as paid from petty cash. A negative balance means spending was entered that the transfers do not
-          cover. <Link href="/petty-cash">See petty cash</Link>
+          entered in the portal as paid from petty cash. Counted = the cash counted in the box at month end; when there is a count,
+          the month ends on it and next month starts from it. A negative balance means spending was entered that the transfers do
+          not cover. <Link href={`/petty-cash?month=${month}`}>Count or see petty cash</Link>
         </p>
       </div>
 

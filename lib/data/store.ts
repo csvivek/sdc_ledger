@@ -24,11 +24,14 @@ import type {
   MonthKey,
   Payee,
   PayeeKind,
+  PettyCount,
+  PettyCountReason,
   PjReceipt,
   ReconNote,
   ReconReason,
 } from "../types";
 import { buildSeed } from "./seed";
+import { SEED_PETTY_REASONS } from "../petty";
 import { isSupabaseConfigured } from "../supabase/config";
 import { SupabaseLedgerStore } from "./supabase-store";
 
@@ -68,6 +71,13 @@ export interface LedgerStore {
   updateBankRule(id: string, rule: Omit<BankRule, "id">): Promise<void>;
   deleteBankRule(id: string): Promise<void>;
   setReconNote(month: MonthKey, topic: ReconNote["topic"], note: string): Promise<void>;
+
+  // Month-end petty cash counts (admin only).
+  /** Saves the count for its clinic and month, replacing the one already there. */
+  savePettyCount(count: Omit<PettyCount, "id" | "countedAt">): Promise<PettyCount>;
+  deletePettyCount(id: string): Promise<void>;
+  /** Adds a reason at the end of the list. The caller checks for duplicates first. */
+  addPettyCountReason(label: string, createdBy: string): Promise<PettyCountReason>;
 }
 
 export interface ImportMeta {
@@ -111,6 +121,8 @@ class JsonFileStore implements LedgerStore {
         for (const c of seed.categories) if (!d.categories.includes(c)) d.categories.push(c);
       }
       d.imports ??= [];
+      d.pettyCounts ??= [];
+      d.pettyCountReasons ??= SEED_PETTY_REASONS;
       return d;
     } catch {
       const seed: StoredData = { ...buildSeed(), imports: [] };
@@ -318,6 +330,34 @@ class JsonFileStore implements LedgerStore {
     if (note.trim()) d.reconNotes.push({ month, topic, note: note.trim() });
     await this.save(d);
   }
+  async savePettyCount(count: Omit<PettyCount, "id" | "countedAt">) {
+    const d = await this.load();
+    const old = d.pettyCounts.find((c) => c.clinic === count.clinic && c.month === count.month);
+    const row: PettyCount = { ...count, id: old?.id ?? `pcount_${Date.now()}`, countedAt: new Date().toISOString() };
+    d.pettyCounts = [...d.pettyCounts.filter((c) => c !== old), row];
+    await this.save(d);
+    return row;
+  }
+
+  async deletePettyCount(id: string) {
+    const d = await this.load();
+    d.pettyCounts = d.pettyCounts.filter((c) => c.id !== id);
+    await this.save(d);
+  }
+
+  async addPettyCountReason(label: string) {
+    const d = await this.load();
+    const row: PettyCountReason = {
+      id: `pcr_${Date.now()}`,
+      label: label.trim().replace(/\s+/g, " "),
+      active: true,
+      sortOrder: Math.max(0, ...d.pettyCountReasons.map((r) => r.sortOrder)) + 1,
+    };
+    d.pettyCountReasons.push(row);
+    await this.save(d);
+    return row;
+  }
+
 }
 
 /** The JSON file also keeps the import history and hidden categories, which are not part of LedgerData. */

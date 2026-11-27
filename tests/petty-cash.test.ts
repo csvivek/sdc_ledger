@@ -72,7 +72,15 @@ describe("pettyCashMonth", () => {
       const r = reconcileMonth(d, m);
       for (const c of CLINICS) {
         const p = pettyCashMonth(d, c, m);
-        expect(r.petty[c]).toEqual({ opening: p.carriedIn, received: p.received, spent: p.spent, closing: p.leftAtEnd });
+        expect(r.petty[c]).toEqual({
+          opening: p.carriedIn,
+          received: p.received,
+          spent: p.spent,
+          expected: p.expected,
+          counted: p.count?.counted,
+          difference: p.difference,
+          closing: p.leftAtEnd,
+        });
       }
     }
   });

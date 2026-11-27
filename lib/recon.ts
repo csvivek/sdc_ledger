@@ -203,7 +203,21 @@ export interface MonthRecon {
     unexplained: number;
   };
   /** Per clinic: petty cash received and spent this month, and the balance at month end. */
-  petty: Record<ClinicId, { opening: number; received: number; spent: number; closing: number }>;
+  petty: Record<
+    ClinicId,
+    {
+      opening: number;
+      received: number;
+      spent: number;
+      /** Carried in + received − spent. */
+      expected: number;
+      /** The month-end count, when someone counted the box. */
+      counted?: number;
+      difference: number;
+      /** The count if there is one, otherwise expected. */
+      closing: number;
+    }
+  >;
   card: {
     receipts: PjReceipt[];
     total: number;
@@ -246,7 +260,15 @@ export function reconcileMonth(d: LedgerData, month: MonthKey, m: Matches = matc
   // PETTY CASH transfers split equally; leftover carried into the next month).
   const pettyFor = (c: ClinicId) => {
     const p = pettyCashMonth(d, c, month);
-    return { opening: p.carriedIn, received: p.received, spent: p.spent, closing: p.leftAtEnd };
+    return {
+      opening: p.carriedIn,
+      received: p.received,
+      spent: p.spent,
+      expected: p.expected,
+      counted: p.count?.counted,
+      difference: p.difference,
+      closing: p.leftAtEnd,
+    };
   };
 
   const cardR = rec.filter((r) => r.mode === "CARD");
