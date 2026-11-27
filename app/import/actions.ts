@@ -156,10 +156,98 @@ export async function reapplyRules() {
   revalidatePath("/", "layout");
 }
 
-export async function deleteRule(formData: FormData) {
+export type RuleFormState = { ok?: string; error?: string; savedAt?: number };
+
+/** Reads and checks the rule fields from the edit or add form. */
+function readRule(formData: FormData, categories: string[]): Omit<BankRule, "id"> | string {
+  const pattern = String(formData.get("pattern") ?? "").trim().replace(/\s+/g, " ");
+  const matchType = String(formData.get("matchType") ?? "contains");
+  const choice = String(formData.get("choice") ?? "");
+  const clinicRaw = String(formData.get("clinic") ?? "") as ClinicOrShared;
+  const priority = Number(formData.get("priority"));
+
+  if (pattern.length < 2 || pattern.length > 200) return "The text to look for must be 2 to 200 characters.";
+  if (matchType !== "contains" && matchType !== "regex") return "Choose how to match the text.";
+  if (matchType === "regex") {
+    try {
+      new RegExp(pattern, "i");
+    } catch {
+      return "That pattern is not valid. Check the brackets and special characters, or switch to \"Contains this text\".";
+    }
+  }
+  if (!Number.isInteger(priority) || priority < 1 || priority > 999) return "Order must be a whole number from 1 to 999.";
+
+  let action: BankRule["action"];
+  let category: string | undefined;
+  if (choice.startsWith("EXPENSE:")) {
+    category = choice.slice("EXPENSE:".length);
+    if (!categories.includes(category)) return "Choose a category from the list.";
+    action = "EXPENSE";
+  } else if (choice === "PETTY_CASH" || choice === "TRANSFER_OUT") {
+    action = choice;
+  } else return "Choose what the payment means.";
+
+  // Clinic only matters for expenses; "" means no clinic on the rule (the narration decides, else Shared).
+  const clinic = action === "EXPENSE" && CLINIC_VALUES.includes(clinicRaw) ? clinicRaw : undefined;
+  return { pattern, matchType, action, category, clinic, priority };
+}
+
+/**
+ * Adds a rule (no id) or changes one (id). Then runs the rules over unanswered debits, and,
+ * when asked, over the debits this rule had already categorised so they follow the change.
+ */
+export async function saveRule(_prev: RuleFormState, formData: FormData): Promise<RuleFormState> {
+  const user = await requireAdmin();
+  const id = String(formData.get("id") ?? "");
+  const updateLinked = formData.get("updateLinked") === "1";
+  try {
+    const store = getStore();
+    const d = await store.read();
+    const rule = readRule(formData, d.categories);
+    if (typeof rule === "string") return { error: rule };
+
+    let rules: BankRule[];
+    let relinked = 0;
+    if (id) {
+      if (!d.bankRules.some((r) => r.id === id)) return { error: "This rule no longer exists. Reload the page." };
+      await store.updateBankRule(id, rule);
+      rules = d.bankRules.map((r) => (r.id === id ? { ...rule, id } : r));
+      if (updateLinked) {
+        for (const t of d.bankTxns) {
+          if (t.ruleId !== id || !(t.withdrawal > 0)) continue;
+          const c = classify(t, rules);
+          await store.updateBankTxn(t.id, { kind: c.kind, category: c.category, clinic: c.clinic, ruleId: c.ruleId });
+          relinked++;
+        }
+      }
+    } else {
+      const added = await store.addBankRule(rule, user.id);
+      rules = [...d.bankRules, added];
+    }
+    // Debits re-done above are no longer UNKNOWN_OUT in this snapshot, so reapply leaves them alone.
+    const answered = await reapply(d.bankTxns, rules);
+
+    const parts = [id ? "Rule saved." : "Rule added."];
+    if (relinked) parts.push(`${relinked} payment(s) it had categorised were updated.`);
+    if (answered) parts.push(`${answered} unanswered payment(s) now have a category.`);
+    revalidatePath("/", "layout");
+    return { ok: parts.join(" "), savedAt: Date.now() };
+  } catch (err) {
+    console.error("save rule failed", err);
+    return { error: "Could not save the rule. Please try again." };
+  }
+}
+
+export async function deleteRule(_prev: RuleFormState, formData: FormData): Promise<RuleFormState> {
   await requireAdmin();
-  await getStore().deleteBankRule(String(formData.get("id") ?? ""));
-  revalidatePath("/import");
+  try {
+    await getStore().deleteBankRule(String(formData.get("id") ?? ""));
+  } catch (err) {
+    console.error("delete rule failed", err);
+    return { error: "Could not delete the rule. Please try again." };
+  }
+  revalidatePath("/", "layout");
+  return { ok: "Rule deleted.", savedAt: Date.now() };
 }
 
 const TOPICS: ReconNote["topic"][] = ["UPI", "CASH", "CARD", "EXPENSES"];

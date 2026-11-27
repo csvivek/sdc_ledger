@@ -55,6 +55,7 @@ export interface LedgerStore {
   listImports(limit: number): Promise<ImportBatch[]>;
   updateBankTxn(id: string, patch: Pick<BankTxn, "kind" | "category" | "clinic" | "ruleId">): Promise<void>;
   addBankRule(rule: Omit<BankRule, "id">, createdBy: string): Promise<BankRule>;
+  updateBankRule(id: string, rule: Omit<BankRule, "id">): Promise<void>;
   deleteBankRule(id: string): Promise<void>;
   setReconNote(month: MonthKey, topic: ReconNote["topic"], note: string): Promise<void>;
 }
@@ -238,6 +239,14 @@ class JsonFileStore implements LedgerStore {
     d.bankRules.push(row);
     await this.save(d);
     return row;
+  }
+
+  async updateBankRule(id: string, rule: Omit<BankRule, "id">) {
+    const d = await this.load();
+    const i = d.bankRules.findIndex((r) => r.id === id);
+    if (i < 0) throw new Error("Rule not found");
+    d.bankRules[i] = { ...rule, id };
+    await this.save(d);
   }
 
   async deleteBankRule(id: string) {

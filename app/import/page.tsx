@@ -2,8 +2,9 @@ import { requireAdmin } from "@/lib/auth";
 import { getStore } from "@/lib/data/store";
 import { ImportForm } from "@/components/ImportForm";
 import { DebitForm } from "@/components/DebitForm";
+import { RuleForm } from "@/components/RuleForm";
 import { CLINIC_LABEL, BANK_KIND_LABEL } from "@/lib/types";
-import { deleteRule, reapplyRules } from "./actions";
+import { reapplyRules } from "./actions";
 
 export const dynamic = "force-dynamic";
 
@@ -71,7 +72,12 @@ export default async function ImportPage() {
       <h2>Rules for bank payments</h2>
       <p className="muted">
         The first matching rule (lowest number) decides. A clinic written in the narration (SDC1, SDC 2) wins over the rule&apos;s clinic.
+        Tap Edit on a rule to change it. Saving a rule also runs the rules again on payments still waiting for an answer.
       </p>
+      <details className="card">
+        <summary>Add a rule</summary>
+        <RuleForm categories={d.categories} />
+      </details>
       <form action={reapplyRules} style={{ marginBottom: 8 }}>
         <button type="submit" className="small secondary">Run the rules again on unanswered payments</button>
       </form>
@@ -102,10 +108,10 @@ export default async function ImportPage() {
                   </td>
                   <td data-label="Used" className="num">{used.get(r.id) ?? 0}</td>
                   <td className="actions">
-                    <form action={deleteRule}>
-                      <input type="hidden" name="id" value={r.id} />
-                      <button type="submit" className="small secondary">Delete</button>
-                    </form>
+                    <details>
+                      <summary>Edit</summary>
+                      <RuleForm rule={r} categories={d.categories} used={used.get(r.id) ?? 0} />
+                    </details>
                   </td>
                 </tr>
               ))}

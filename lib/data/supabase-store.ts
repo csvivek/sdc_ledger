@@ -447,6 +447,24 @@ export class SupabaseLedgerStore implements LedgerStore {
     return toBankRule(data);
   }
 
+  async updateBankRule(id: string, rule: Omit<BankRule, "id">) {
+    const sb = await this.client();
+    const { data, error } = await sb
+      .from("bank_rules")
+      .update({
+        pattern: rule.pattern,
+        match_type: rule.matchType,
+        action: rule.action,
+        category: rule.category ?? null,
+        clinic: rule.clinic ?? null,
+        priority: rule.priority,
+      })
+      .eq("id", id)
+      .select("id");
+    if (error) throw new Error(error.message);
+    if (!data?.length) throw new Error("Rule not found");
+  }
+
   async deleteBankRule(id: string) {
     const sb = await this.client();
     const { error } = await sb.from("bank_rules").delete().eq("id", id);
