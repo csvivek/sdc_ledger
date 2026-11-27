@@ -1,7 +1,8 @@
 "use client";
 
-import { startTransition, useActionState, type FormEvent, type ReactNode } from "react";
+import { useState, useTransition, type FormEvent, type ReactNode } from "react";
 import { categoriseDebit, type DebitFormState } from "@/app/import/actions";
+import { useDebitNotice } from "./DebitNotices";
 import { CLINIC_LABEL, type ClinicOrShared } from "@/lib/types";
 
 /**
@@ -19,15 +20,31 @@ export function DebitFormFields(props: {
   head: ReactNode;
 }) {
   const { id, categories, compact, current, clinic, pattern, head } = props;
-  const [state, action, pending] = useActionState<DebitFormState, FormData>(categoriseDebit, {});
+  const [state, setState] = useState<DebitFormState>({});
+  const [pending, startTransition] = useTransition();
+  const showNotice = useDebitNotice();
 
   // Submit by hand rather than with <form action>, because React clears an action form
-  // after it runs, and a failed save should keep what was picked.
+  // after it runs, and a failed save should keep what was picked. Calling the action
+  // directly also lets the result reach the notice above the list.
   function submit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     if (pending) return;
     const fd = new FormData(e.currentTarget);
-    startTransition(() => action(fd));
+    startTransition(async () => {
+      let res: DebitFormState;
+      try {
+        res = await categoriseDebit({}, fd);
+      } catch {
+        res = { error: "Could not save. Check your connection and press Save again." };
+      }
+      // The list above this form outlives it, so a note shown there is not lost when the payment leaves the list.
+      if (res.notice && showNotice) {
+        showNotice(res.notice);
+        res = { ...res, notice: undefined };
+      }
+      setState(res);
+    });
   }
 
   return (
@@ -63,7 +80,8 @@ export function DebitFormFields(props: {
         </div>
       </fieldset>
       {state.error && !pending && <p className="err" role="alert">{state.error}</p>}
-      {state.saved && !pending && compact && <p className="ok">Saved.</p>}
+      {state.notice && !pending && <p className="notice" role="status">{state.notice}</p>}
+      {state.saved && !state.notice && !pending && compact && <p className="ok">Saved.</p>}
     </form>
   );
 }

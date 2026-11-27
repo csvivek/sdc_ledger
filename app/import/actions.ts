@@ -7,7 +7,7 @@ import { readSheetRows } from "@/lib/import/read-sheet";
 import { isHdfcStatement, parseHdfc } from "@/lib/import/hdfc";
 import { isPappyJoePayments, parsePappyJoe } from "@/lib/import/pappyjoe";
 import { classify } from "@/lib/import/rules";
-import { CLINIC_LABEL, type BankRule, type BankTxn, type ClinicOrShared, type ReconNote } from "@/lib/types";
+import { BANK_KIND_LABEL, CLINIC_LABEL, type BankRule, type BankTxn, type ClinicOrShared, type ReconNote } from "@/lib/types";
 
 export interface FileResult {
   file: string;
@@ -95,7 +95,10 @@ export async function importFiles(_prev: ImportState, formData: FormData): Promi
 
 const CLINIC_VALUES: ClinicOrShared[] = ["SDC1", "SDC2", "SHARED"];
 
-export type DebitFormState = { error?: string; saved?: boolean };
+export type DebitFormState = { error?: string; saved?: boolean; notice?: string };
+
+/** Rule text compared the way the app matches it: case and extra spaces ignored. */
+const ruleKey = (pattern: string) => pattern.trim().replace(/\s+/g, " ").toUpperCase();
 
 /**
  * The admin says what a bank debit is, and optionally saves that as a rule for next time.
@@ -110,6 +113,7 @@ export async function categoriseDebit(_prev: DebitFormState, formData: FormData)
   const remember = formData.get("remember") === "1";
   const pattern = String(formData.get("pattern") ?? "").trim().replace(/\s+/g, " ").slice(0, 200);
 
+  let notice: string | undefined;
   try {
     const store = getStore();
     const d = await store.read();
@@ -130,21 +134,26 @@ export async function categoriseDebit(_prev: DebitFormState, formData: FormData)
     const ruleClinic = action === "EXPENSE" ? clinic : undefined;
     let ruleId: string | undefined;
     if (remember) {
-      // Reuse a rule that already says exactly this, so a repeated Save never adds the same rule twice.
-      const same = d.bankRules.find(
-        (r) =>
-          r.matchType === "contains" &&
-          r.pattern.toUpperCase() === pattern.toUpperCase() &&
-          r.action === action &&
-          (r.category ?? undefined) === category &&
-          (r.clinic ?? undefined) === ruleClinic,
-      );
-      if (same) ruleId = same.id;
-      else {
-        // Clinic is only stored on the rule when it is not written in the narration.
-        const rule = await store.addBankRule({ pattern, matchType: "contains", action, category, clinic: ruleClinic, priority: 50 }, user.id);
-        ruleId = rule.id;
-        d.bankRules.push(rule);
+      // Never add a second rule for the same text. The answer for this payment is still saved.
+      const existing = d.bankRules.find((r) => r.matchType === "contains" && ruleKey(r.pattern) === ruleKey(pattern));
+      if (existing) {
+        const sameMeaning =
+          existing.action === action && (existing.category ?? undefined) === category && (existing.clinic ?? undefined) === ruleClinic;
+        if (sameMeaning) ruleId = existing.id;
+        notice = sameMeaning
+          ? `Saved. A rule for "${existing.pattern}" already exists, so it was not added again.`
+          : `Saved this payment. A rule for "${existing.pattern}" already exists (#${existing.priority}, ${describeRule(existing)}), so the new rule was not added. Change that rule under "Rules for bank payments" if it is wrong.`;
+      } else {
+        try {
+          // Clinic is only stored on the rule when it is not written in the narration.
+          const rule = await store.addBankRule({ pattern, matchType: "contains", action, category, clinic: ruleClinic, priority: 50 }, user.id);
+          ruleId = rule.id;
+          d.bankRules.push(rule);
+        } catch (err) {
+          // The database refuses a duplicate too (for example two Saves at the same moment).
+          if (!isDuplicateRuleError(err)) throw err;
+          notice = `Saved. A rule for "${pattern}" already exists, so it was not added again.`;
+        }
       }
     }
     await store.updateBankTxn(id, { kind: action, category, clinic: ruleClinic, ruleId });
@@ -154,7 +163,16 @@ export async function categoriseDebit(_prev: DebitFormState, formData: FormData)
     return { error: "Could not save. Check your connection and press Save again." };
   }
   revalidatePath("/", "layout");
-  return { saved: true };
+  return { saved: true, notice };
+}
+
+function describeRule(r: BankRule) {
+  const what = r.action === "EXPENSE" ? (r.category ?? "Expense") : BANK_KIND_LABEL[r.action];
+  return r.clinic && r.clinic !== "SHARED" ? `${what}, ${CLINIC_LABEL[r.clinic]}` : what;
+}
+
+function isDuplicateRuleError(err: unknown) {
+  return err instanceof Error && /bank_rules_pattern_unique|duplicate key/i.test(err.message);
 }
 
 /** Runs the rules again over debits that are still waiting for an answer. Never changes a debit someone already decided. */

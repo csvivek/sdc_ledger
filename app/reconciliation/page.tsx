@@ -7,6 +7,7 @@ import { counterparty } from "@/lib/import/hdfc";
 import { CLINIC_LABEL, IN_PAPPYJOE_LABEL, PAID_BY_LABEL, type ReconNote } from "@/lib/types";
 import { MonthPicker, pickMonth } from "@/components/MonthPicker";
 import { DebitForm } from "@/components/DebitForm";
+import { DebitNotices } from "@/components/DebitNotices";
 import { saveReconNote } from "../import/actions";
 import { toggleCardCredited } from "../actions";
 
@@ -249,14 +250,16 @@ export default async function ReconciliationPage({ searchParams }: { searchParam
           portal entry still count in the P&amp;L under their category, so nothing is missed or counted twice.
         </p>
 
-        {r.expenses.unknown.length > 0 && (
-          <>
-            <strong>Needs your answer</strong>
-            {r.expenses.unknown.map((t) => (
-              <DebitForm key={t.id} txn={t} categories={d.categories} />
-            ))}
-          </>
-        )}
+        <DebitNotices>
+          {r.expenses.unknown.length > 0 && (
+            <>
+              <strong>Needs your answer</strong>
+              {r.expenses.unknown.map((t) => (
+                <DebitForm key={t.id} txn={t} categories={d.categories} />
+              ))}
+            </>
+          )}
+        </DebitNotices>
 
         {r.expenses.portalOnly.length > 0 && (
           <>

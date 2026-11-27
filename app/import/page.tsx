@@ -2,6 +2,7 @@ import { requireAdmin } from "@/lib/auth";
 import { getStore } from "@/lib/data/store";
 import { ImportForm } from "@/components/ImportForm";
 import { DebitForm } from "@/components/DebitForm";
+import { DebitNotices } from "@/components/DebitNotices";
 import { CLINIC_LABEL, BANK_KIND_LABEL } from "@/lib/types";
 import { deleteRule, reapplyRules } from "./actions";
 
@@ -21,6 +22,7 @@ export default async function ImportPage() {
       <ImportForm />
 
       <h2>Bank payments that need your answer ({unknown.length})</h2>
+      <DebitNotices>
       {unknown.length === 0 ? (
         <p className="muted">None. Every imported bank debit has a category.</p>
       ) : (
@@ -34,6 +36,7 @@ export default async function ImportPage() {
           ))}
         </>
       )}
+      </DebitNotices>
 
       <h2>Recent imports</h2>
       <div className="table-wrap">
