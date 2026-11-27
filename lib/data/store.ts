@@ -19,6 +19,9 @@ import type {
   CategoryInfo,
   ClinicId,
   Expense,
+  GapAnswer,
+  GapReason,
+  GapRule,
   ImportBatch,
   LedgerData,
   MonthKey,
@@ -29,6 +32,7 @@ import type {
   ReconReason,
 } from "../types";
 import { buildSeed } from "./seed";
+import { seedGapReasons } from "../gaps";
 import { isSupabaseConfigured } from "../supabase/config";
 import { SupabaseLedgerStore } from "./supabase-store";
 
@@ -68,6 +72,15 @@ export interface LedgerStore {
   updateBankRule(id: string, rule: Omit<BankRule, "id">): Promise<void>;
   deleteBankRule(id: string): Promise<void>;
   setReconNote(month: MonthKey, topic: ReconNote["topic"], note: string): Promise<void>;
+
+  // Reconciliation answers (admin only).
+  /** Adds an answer to the list for a gap type. The caller checks for duplicates first. */
+  addGapReason(r: Pick<GapReason, "gapType" | "label" | "followUp">, createdBy: string): Promise<GapReason>;
+  /** Saves (or replaces) the answer for one gap item. */
+  setGapAnswer(a: Omit<GapAnswer, "answeredAt">): Promise<void>;
+  /** Remembers an answer for every later gap with the same signature. The caller checks for duplicates first. */
+  addGapRule(r: Omit<GapRule, "id">, createdBy: string): Promise<GapRule>;
+  deleteGapRule(id: string): Promise<void>;
 }
 
 export interface ImportMeta {
@@ -111,6 +124,10 @@ class JsonFileStore implements LedgerStore {
         for (const c of seed.categories) if (!d.categories.includes(c)) d.categories.push(c);
       }
       d.imports ??= [];
+      // Files saved before reconciliation answers existed.
+      d.gapReasons ??= seedGapReasons();
+      d.gapAnswers ??= [];
+      d.gapRules ??= [];
       return d;
     } catch {
       const seed: StoredData = { ...buildSeed(), imports: [] };
@@ -316,6 +333,35 @@ class JsonFileStore implements LedgerStore {
     const d = await this.load();
     d.reconNotes = d.reconNotes.filter((n) => !(n.month === month && n.topic === topic));
     if (note.trim()) d.reconNotes.push({ month, topic, note: note.trim() });
+    await this.save(d);
+  }
+
+  async addGapReason(r: Pick<GapReason, "gapType" | "label" | "followUp">) {
+    const d = await this.load();
+    const row: GapReason = { ...r, id: `gr_${Date.now()}_${d.gapReasons.length}`, active: true };
+    d.gapReasons.push(row);
+    await this.save(d);
+    return row;
+  }
+
+  async setGapAnswer(a: Omit<GapAnswer, "answeredAt">) {
+    const d = await this.load();
+    d.gapAnswers = d.gapAnswers.filter((x) => !(x.gapType === a.gapType && x.itemKey === a.itemKey));
+    d.gapAnswers.push({ ...a, answeredAt: new Date().toISOString() });
+    await this.save(d);
+  }
+
+  async addGapRule(r: Omit<GapRule, "id">) {
+    const d = await this.load();
+    const row: GapRule = { ...r, id: `gapr_${Date.now()}_${d.gapRules.length}` };
+    d.gapRules.push(row);
+    await this.save(d);
+    return row;
+  }
+
+  async deleteGapRule(id: string) {
+    const d = await this.load();
+    d.gapRules = d.gapRules.filter((r) => r.id !== id);
     await this.save(d);
   }
 }

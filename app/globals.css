@@ -497,3 +497,38 @@ code { word-break: break-all; }
 .rename-form { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .rename-form input[type="text"] { flex: 1 1 180px; min-width: 0; }
 .row-actions { white-space: nowrap; }
+
+/* Reconciliation gaps: one question per item, answers to pick from. */
+.badge.warn { background: var(--warn-bg); color: var(--warn-text); }
+.gap-summary.has-open { border-left: 4px solid var(--bad); }
+.gap-summary p { margin: 0 0 8px; }
+.gap-todo { margin: 0 0 8px; padding-left: 18px; font-size: 14px; }
+.gap-todo li { margin: 4px 0; word-break: break-word; }
+.gap-jump { margin-top: 6px; }
+.gap-jump a { text-decoration: none; font-size: 13px; padding: 6px 10px; }
+.gap-group { margin: 14px 0; }
+.gap-item { margin: 10px 0; }
+.gap-item.answered { border-top: 1px solid var(--line); padding: 10px 0 0; margin: 10px 0 0; }
+.gap-head .gap-title { font-size: 15px; }
+.gap-head .narration { font-size: 13px; word-break: break-all; margin: 2px 0; }
+.gap-hint { font-size: 14px; margin: 6px 0 0; color: var(--muted); }
+.gap-answer { margin: 6px 0 2px; font-size: 14px; }
+.gap-form { margin-top: 10px; }
+.gap-form legend { margin: 6px 0 8px; }
+.reason-list { display: flex; flex-direction: column; gap: 6px; }
+.reason-list label {
+  display: flex; gap: 10px; align-items: flex-start; margin: 0; padding: 10px 12px;
+  border: 1px solid var(--line); border-radius: var(--radius-sm); font-weight: 500; cursor: pointer; background: var(--card);
+}
+.reason-list label.picked { border-color: var(--brand); background: var(--brand-soft); }
+.reason-list input { width: 20px; height: 20px; flex: none; margin-top: 1px; }
+.reason-list label > span { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.reason-label { font-weight: 600; word-break: break-word; }
+.reason-next { font-size: 13px; color: var(--muted); font-weight: 400; }
+.tag { display: inline-block; margin-left: 6px; font-size: 11px; font-weight: 700; padding: 1px 7px; border-radius: 999px; background: var(--brand); color: #fff; vertical-align: 1px; }
+.gap-new { margin-top: 8px; }
+.gap-why { margin: 6px 0 0; }
+.gap-form > fieldset > input[name="note"] { margin-top: 10px; }
+.gap-form label.remember { display: flex; gap: 8px; align-items: center; font-weight: 500; margin: 10px 0 0; }
+.gap-form label.remember input { width: 20px; height: 20px; flex: none; }
+.gap-form button[type="submit"] { margin-top: 10px; }
