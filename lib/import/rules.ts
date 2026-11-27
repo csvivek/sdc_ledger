@@ -37,6 +37,25 @@ export function ruleMatches(rule: Pick<BankRule, "pattern" | "matchType">, narra
   return p.length > 0 && n.includes(p);
 }
 
+/** Pattern text as it is compared for duplicates: trimmed, single spaces, any case. */
+export function normalisePattern(pattern: string): string {
+  return pattern.trim().replace(/\s+/g, " ").toUpperCase();
+}
+
+/**
+ * Another rule with the same text and the same kind of match, if there is one.
+ * Two such rules can never both apply (the first one always wins), so a second one
+ * is a duplicate whatever its category or clinic.
+ */
+export function findDuplicateRule(
+  rule: Pick<BankRule, "pattern" | "matchType">,
+  rules: BankRule[],
+  ignoreId?: string,
+): BankRule | undefined {
+  const key = normalisePattern(rule.pattern);
+  return rules.find((r) => r.id !== ignoreId && r.matchType === rule.matchType && normalisePattern(r.pattern) === key);
+}
+
 export function classify(
   row: { narration: string; withdrawal: number; deposit: number },
   rules: BankRule[],

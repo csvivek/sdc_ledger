@@ -14,6 +14,7 @@ const PAYEE_QUESTION: Record<PayeeKind, string> = {
   pharma: "Which pharmacy or supplier?",
   supplier: "Which supplier?",
   consultant: "Which consultant?",
+  landlord: "Paid to?",
 };
 
 const CLINIC_OPTIONS = [

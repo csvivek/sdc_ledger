@@ -5,8 +5,8 @@ export type ClinicId = "SDC1" | "SDC2";
 export type ClinicOrShared = ClinicId | "SHARED";
 export type PaidBy = "PETTY_CASH" | "UPI" | "BANK";
 export type Role = "admin" | "staff";
-export type PayeeKind = "staff" | "lab" | "pharma" | "supplier" | "consultant";
-export const PAYEE_KINDS: PayeeKind[] = ["staff", "lab", "pharma", "supplier", "consultant"];
+export type PayeeKind = "staff" | "lab" | "pharma" | "supplier" | "consultant" | "landlord";
+export const PAYEE_KINDS: PayeeKind[] = ["staff", "lab", "pharma", "supplier", "consultant", "landlord"];
 /** Is this expense already entered in PappyJoe? NA = not applicable. */
 export type InPappyJoe = "YES" | "NO" | "NA";
 
@@ -179,6 +179,15 @@ export interface ReconNote {
   note: string;
 }
 
+/** One expense category as the admin's Categories page shows it. */
+export interface CategoryInfo {
+  name: string;
+  /** Hidden categories stay on old entries and in reports but are no longer offered. */
+  active: boolean;
+  payeeKind?: PayeeKind;
+  needsInvoice: boolean;
+}
+
 export interface LedgerData {
   users: User[];
   categories: string[];
@@ -218,6 +227,7 @@ export const PAYEE_KIND_LABEL: Record<PayeeKind, string> = {
   pharma: "Pharmacy / supplier",
   supplier: "Dental materials supplier",
   consultant: "Consultant",
+  landlord: "Landlord / other vendor",
 };
 
 export const IN_PAPPYJOE_LABEL: Record<InPappyJoe, string> = {
