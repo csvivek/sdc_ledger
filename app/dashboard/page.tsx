@@ -68,16 +68,21 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
       <h2>Monthly trend</h2>
       {preview && (
         <p className="mock-note">
-          Sample numbers to preview the charts. These are not the clinics&apos; figures. <a href="/dashboard">Back to real numbers</a>
+          <strong>SAMPLE DATA, not real.</strong> The charts and table in this Monthly trend section use invented numbers so you can
+          see how they will look. The cards above are real. Real charts appear automatically once there are more than{" "}
+          {CHART_THRESHOLD_MONTHS} months of data (there {monthsOfData === 1 ? "is" : "are"} {monthsOfData} now).{" "}
+          <a href="/dashboard">Back to real numbers</a>
         </p>
       )}
       {chartsOn ? (
-        <ChartsTableToggle charts={<TrendCharts rows={rows.slice(-CHART_WINDOW_MONTHS)} />} table={<TrendTables rows={rows} />} />
+        <ChartsTableToggle charts={<TrendCharts rows={rows.slice(-CHART_WINDOW_MONTHS)} sample={preview} monthsOfData={monthsOfData} />} table={<TrendTables rows={rows} />} />
       ) : (
         <>
           <p className="muted">
-            Charts appear once there are more than {CHART_THRESHOLD_MONTHS} months of data (there {monthsOfData === 1 ? "is" : "are"} {monthsOfData} now).{" "}
-            <a href="/dashboard?preview=charts">Preview them with sample numbers</a>
+            <strong>Real numbers.</strong> Charts of real data appear automatically once there are more than {CHART_THRESHOLD_MONTHS}{" "}
+            months of data. There {monthsOfData === 1 ? "is" : "are"} {monthsOfData} month{monthsOfData === 1 ? "" : "s"} now, so they
+            start after {CHART_THRESHOLD_MONTHS + 1 - monthsOfData} more month{CHART_THRESHOLD_MONTHS + 1 - monthsOfData === 1 ? "" : "s"} of data.{" "}
+            <a href="/dashboard?preview=charts">Preview the charts with sample data</a>
           </p>
           <TrendTable rows={rows} />
         </>
@@ -106,16 +111,17 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
 
 const short = (label: string) => label.split(" · ")[0];
 
-function TrendCharts({ rows }: { rows: TrendRow[] }) {
+function TrendCharts({ rows, sample, monthsOfData }: { rows: TrendRow[]; sample: boolean; monthsOfData: number }) {
   const months = rows.map((r) => r.month);
+  const t = (title: string) => (sample ? `SAMPLE · ${title}` : title);
   return (
     <>
       <p className="muted">
-        Last {rows.length} months. Tap a month to see its numbers, or switch to Table for every month.
+        {sample ? <strong>Sample data.</strong> : <strong>Real numbers from {monthsOfData} months of data.</strong>} Last {rows.length} months. Tap a month to see its numbers, or switch to Table for every month.
       </p>
       <div className="chart-grid">
         <TrendChart
-          title="Income and expenses, both clinics"
+          title={t("Income and expenses, both clinics")}
           kind="bar"
           months={months}
           series={[
@@ -125,7 +131,7 @@ function TrendCharts({ rows }: { rows: TrendRow[] }) {
           notes={rows.map((r) => `Profit ${inr(r.profit.ALL)}`)}
         />
         <TrendChart
-          title="Profit by clinic"
+          title={t("Profit by clinic")}
           kind="line"
           months={months}
           series={[
@@ -134,13 +140,13 @@ function TrendCharts({ rows }: { rows: TrendRow[] }) {
           ]}
         />
         <TrendChart
-          title="Cash collected, not yet deposited"
+          title={t("Cash collected, not yet deposited")}
           kind="bar"
           months={months}
           series={[{ name: "Not deposited", color: "var(--brand)", values: rows.map((r) => r.cashNotDeposited) }]}
         />
         <TrendChart
-          title="UPI in PappyJoe, not in bank"
+          title={t("UPI in PappyJoe, not in bank")}
           kind="bar"
           months={months}
           series={[{ name: "Difference", color: "var(--brand)", values: rows.map((r) => r.upiGap) }]}
