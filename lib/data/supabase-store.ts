@@ -3,6 +3,7 @@
 // get categories, clinics, their own profile and their own expenses.
 
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { monthRange } from "../expense-view";
 import { createClient } from "../supabase/server";
 import type {
   BankDeposit,
@@ -210,6 +211,31 @@ export class SupabaseLedgerStore implements LedgerStore {
       sb.from("profiles").select("*"),
     ]);
     return { expenses: rows(expenses, toExpense), users: rows(profiles, toUser) };
+  }
+
+  async monthExpenses(month: MonthKey, limit: number) {
+    const sb = await this.client();
+    const { from, to } = monthRange(month);
+    const [expenses, profiles] = await Promise.all([
+      sb
+        .from("expenses")
+        .select("*")
+        .gte("date", from)
+        .lt("date", to)
+        .order("date", { ascending: false })
+        .order("entered_at", { ascending: false })
+        .limit(limit + 1),
+      sb.from("profiles").select("*"),
+    ]);
+    const all = rows(expenses, toExpense);
+    return { expenses: all.slice(0, limit), users: rows(profiles, toUser), more: all.length > limit };
+  }
+
+  async firstExpenseDate() {
+    const sb = await this.client();
+    const { data, error } = await sb.from("expenses").select("date").order("date", { ascending: true }).limit(1);
+    if (error) throw new Error(error.message);
+    return (data?.[0]?.date as string | undefined) ?? undefined;
   }
 
   async formOptions(): Promise<FormOptions> {
