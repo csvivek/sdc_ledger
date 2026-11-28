@@ -49,6 +49,9 @@ export interface Expense {
   inPappyJoe?: InPappyJoe;
   enteredBy: string; // user id
   enteredAt: string; // ISO timestamp
+  /** Set when added from a recurring expense (Recurring page), with the month it was for. */
+  recurringId?: string;
+  recurringMonth?: MonthKey;
 }
 
 /** Cash withdrawn from the shared bank account into a clinic's petty cash. A transfer, not an expense. */

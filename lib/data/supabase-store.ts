@@ -51,6 +51,8 @@ export const toExpense = (r: Row): Expense => ({
   inPappyJoe: r.in_pappyjoe ?? undefined,
   enteredBy: r.entered_by,
   enteredAt: r.entered_at,
+  recurringId: r.recurring_template_id ?? undefined,
+  recurringMonth: r.recurring_month ?? undefined,
 });
 
 /** Supabase returns at most 1000 rows per request, so read big tables page by page. */
@@ -273,6 +275,8 @@ export class SupabaseLedgerStore implements LedgerStore {
         invoice_no: e.invoiceNo ?? null,
         in_pappyjoe: e.inPappyJoe ?? null,
         entered_by: e.enteredBy,
+        // Only sent for recurring entries, so saving works before the recurring SQL is run.
+        ...(e.recurringId ? { recurring_template_id: e.recurringId, recurring_month: e.recurringMonth } : {}),
       })
       .select()
       .single();

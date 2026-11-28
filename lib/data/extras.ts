@@ -21,6 +21,7 @@ import type { GapAnswerInfo, PettyCountInfo } from "../admin-types";
 import type { ActivityEntry, ActivityFilter } from "../activity";
 import type { ClinicId, MonthKey, Role, User } from "../types";
 import type { CheckItem, CloseEvent, MonthClose } from "../month-close";
+import type { RecurringTemplate, TemplateInput } from "../recurring";
 
 type Row = Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
 
@@ -58,6 +59,21 @@ export interface ExtrasStore {
   closeEvents(month: MonthKey): Promise<Maybe<CloseEvent[]>>;
   closeMonth(month: MonthKey, checklist: CheckItem[], note: string, by: string): Promise<void>;
   reopenMonth(month: MonthKey, reason: string, by: string): Promise<void>;
+
+  // Recurring expenses (admin only)
+  /** Every template, hidden ones too. Not ready until the recurring SQL is run. */
+  listTemplates(): Promise<Maybe<RecurringTemplate[]>>;
+  /** Adds a template, or changes the one with `id`. Throws DuplicateLabelError for a name already used. */
+  saveTemplate(t: TemplateInput, id?: string): Promise<RecurringTemplate>;
+  setTemplateActive(id: string, active: boolean): Promise<void>;
+}
+
+/** Another template already has this name (two people saving at once). */
+export class DuplicateLabelError extends Error {
+  constructor() {
+    super("A recurring expense with this name already exists.");
+    this.name = "DuplicateLabelError";
+  }
 }
 
 /** The month was already closed, or was not closed, when someone else got there first. */
@@ -99,12 +115,13 @@ export interface ExtrasFile {
   activity: ActivityEntry[];
   closes: MonthClose[];
   closeEvents: CloseEvent[];
+  templates: RecurringTemplate[];
 }
 
 const DIR = process.env.VERCEL ? path.join(os.tmpdir(), "sdc-ledger") : path.join(process.cwd(), "data");
 const FILE = path.join(DIR, "extras.json");
 
-const emptyExtras = (): ExtrasFile => ({ backups: [], activity: [], closes: [], closeEvents: [] });
+const emptyExtras = (): ExtrasFile => ({ backups: [], activity: [], closes: [], closeEvents: [], templates: [] });
 
 /** The main fake-data file (lib/data/store.ts); people live in its users list. */
 const STORE_FILE = path.join(DIR, "store.json");
@@ -276,6 +293,33 @@ class JsonExtrasStore implements ExtrasStore {
   async listBackups(limit: number) {
     const x = await loadExtrasFile();
     return ready([...x.backups].sort((a, b) => b.takenAt.localeCompare(a.takenAt)).slice(0, limit));
+  }
+
+  async listTemplates() {
+    return ready((await loadExtrasFile()).templates);
+  }
+
+  async saveTemplate(t: TemplateInput, id?: string) {
+    return updateExtrasFile((x) => {
+      const norm = (l: string) => l.trim().replace(/\s+/g, " ").toLowerCase();
+      if (x.templates.some((y) => y.id !== id && norm(y.label) === norm(t.label))) throw new DuplicateLabelError();
+      const old = id ? x.templates.find((y) => y.id === id) : undefined;
+      if (id && !old) throw new Error("Recurring expense not found");
+      if (old) {
+        Object.assign(old, t, { payeeId: t.payeeId, pettyCashClinic: t.pettyCashClinic });
+        return old;
+      }
+      const row: RecurringTemplate = { ...t, id: newId("rt"), active: true, sortOrder: 100 };
+      x.templates.push(row);
+      return row;
+    });
+  }
+
+  async setTemplateActive(id: string, active: boolean) {
+    await updateExtrasFile((x) => {
+      const t = x.templates.find((y) => y.id === id);
+      if (t) t.active = active;
+    });
   }
 }
 
@@ -541,7 +585,62 @@ export class SupabaseExtrasStore implements ExtrasStore {
   async reopenMonth(month: MonthKey, reason: string, _by?: string) {
     await this.closeRpc("reopen_month", { p_month: month, p_reason: reason });
   }
+
+  async listTemplates() {
+    return maybe(async () => {
+      const sb = await this.client();
+      // The expenses columns come from the same SQL file; check them too, so the page never offers a tap that cannot save.
+      const [t, e] = await Promise.all([
+        sb.from("recurring_templates").select("*").order("sort_order").order("label"),
+        sb.from("expenses").select("recurring_template_id, recurring_month").limit(1),
+      ]);
+      check(t.error, "Recurring expenses");
+      check(e.error, "Recurring expenses");
+      return (t.data ?? []).map(toTemplate);
+    });
+  }
+
+  async saveTemplate(t: TemplateInput, id?: string) {
+    const sb = await this.client();
+    const row = {
+      label: t.label,
+      category: t.category,
+      payee_id: t.payeeId ?? null,
+      clinic: t.clinic,
+      paid_by: t.paidBy,
+      petty_cash_clinic: t.paidBy === "PETTY_CASH" ? (t.pettyCashClinic ?? null) : null,
+      amount: t.amount,
+      day_of_month: t.dayOfMonth,
+      note: t.note,
+    };
+    const q = id ? sb.from("recurring_templates").update(row).eq("id", id) : sb.from("recurring_templates").insert(row);
+    const { data, error } = await q.select().single();
+    if (error?.code === "23505") throw new DuplicateLabelError();
+    check(error, "Recurring expenses");
+    return toTemplate(data as Row);
+  }
+
+  async setTemplateActive(id: string, active: boolean) {
+    const sb = await this.client();
+    const { error } = await sb.from("recurring_templates").update({ active }).eq("id", id);
+    check(error, "Recurring expenses");
+  }
 }
+
+const toTemplate = (r: Row): RecurringTemplate => ({
+  id: String(r.id),
+  label: r.label,
+  category: r.category,
+  payeeId: r.payee_id ?? undefined,
+  clinic: r.clinic,
+  paidBy: r.paid_by,
+  pettyCashClinic: r.petty_cash_clinic ?? undefined,
+  amount: Number(r.amount),
+  dayOfMonth: Number(r.day_of_month),
+  note: r.note ?? "",
+  active: r.active !== false,
+  sortOrder: Number(r.sort_order ?? 100),
+});
 
 let extras: ExtrasStore | undefined;
 export function getExtras(): ExtrasStore {
