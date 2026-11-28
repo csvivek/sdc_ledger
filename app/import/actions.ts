@@ -7,6 +7,11 @@ import { getStore, ImportDeleteError, inMonth } from "@/lib/data/store";
 import { checkUpload, type Existing } from "@/lib/import/check";
 import type { ImportKind } from "@/lib/import/validate";
 import { classify, findDuplicateRule, normalisePattern } from "@/lib/import/rules";
+import { noteActivity } from "@/lib/note-activity";
+import { isSupabaseConfigured } from "@/lib/supabase/config";
+import { closedMonths } from "@/lib/closed-months";
+import { closedMessage, closedMonthFromError } from "@/lib/month-close";
+import { monthLabel, monthOf } from "@/lib/calc";
 import {
   BANK_KIND_LABEL,
   CLINIC_LABEL,
@@ -61,6 +66,13 @@ export async function importFiles(_prev: ImportState, formData: FormData): Promi
   const store = getStore();
   const d = await store.read();
   const existing: Existing = { bankTxns: [...d.bankTxns], pjReceipts: [...d.pjReceipts], bankRules: d.bankRules };
+  // Rows dated in a closed month are never imported. Those already in the ledger are simply duplicates;
+  // new ones are counted so the admin knows to reopen the month.
+  const closed = await closedMonths();
+  const closedNote = (rows: { date: string }[]) => {
+    const months = [...new Set(rows.map((r) => monthOf(r.date)))].sort().map(monthLabel).join(", ");
+    return `${rows.length} new row(s) dated in closed month(s) ${months} were NOT imported. Reopen the month on Month close to add them.`;
+  };
   const results: FileResult[] = [];
 
   for (const [kind, f] of picked) {
@@ -76,6 +88,24 @@ export async function importFiles(_prev: ImportState, formData: FormData): Promi
     const checked = checkUpload(kind, f.name, data, existing);
     if (!checked.ok) {
       res.lines.push(...checked.lines);
+      continue;
+    }
+
+    // Leave out rows dated in closed months; the ones not already imported are reported.
+    let blocked: { date: string }[] = [];
+    if (checked.kind === "HDFC") {
+      const have = new Set(existing.bankTxns.map((t) => t.fingerprint));
+      blocked = checked.txns.filter((t) => closed.has(monthOf(t.date)) && !have.has(t.fingerprint));
+      checked.txns = checked.txns.filter((t) => !closed.has(monthOf(t.date)));
+    } else {
+      const clinic = checked.clinic;
+      const have = new Set(existing.pjReceipts.filter((r) => r.clinic === clinic).map((r) => r.receiptNo));
+      blocked = checked.receipts.filter((r) => closed.has(monthOf(r.date)) && !have.has(r.receiptNo));
+      checked.receipts = checked.receipts.filter((r) => !closed.has(monthOf(r.date)));
+    }
+    if (!(checked.kind === "HDFC" ? checked.txns : checked.receipts).length) {
+      res.ok = !blocked.length;
+      res.lines.push(blocked.length ? closedNote(blocked) : "Every row is in a closed month and already imported. Nothing to add.");
       continue;
     }
 
@@ -99,6 +129,7 @@ export async function importFiles(_prev: ImportState, formData: FormData): Promi
       if (checked.kind === "HDFC") {
         const out = await store.importBank(checked.txns, meta);
         existing.bankTxns.push(...checked.txns);
+        await noteActivity(user, "add", "import_batches", undefined, { after: { fileName: f.name, source: "HDFC", rowsAdded: out.added } });
         const debits = checked.txns.filter((t) => t.withdrawal > 0);
         const unknown = debits.filter((t) => t.kind === "UNKNOWN_OUT").length;
         res.lines.push(
@@ -106,15 +137,18 @@ export async function importFiles(_prev: ImportState, formData: FormData): Promi
           ...checked.lines,
           `${debits.length - unknown} of ${debits.length} debits categorised automatically${unknown ? `; ${unknown} need your answer below` : ""}.`,
         );
+        if (blocked.length) res.lines.push(closedNote(blocked));
       } else {
         const out = await store.importPappyJoe(checked.clinic, checked.receipts, meta);
         existing.pjReceipts.push(...checked.receipts.map((r) => ({ ...r, clinic: checked.clinic })));
+        await noteActivity(user, "add", "import_batches", undefined, { after: { fileName: f.name, source: "PAPPYJOE", clinic: checked.clinic, rowsAdded: out.added } });
         const neg = checked.receipts.filter((r) => r.amount < 0);
         res.lines.push(
           `PappyJoe, ${CLINIC_LABEL[checked.clinic]}, ${dates[0]} to ${dates[dates.length - 1]}: ${out.added} new payments, ${out.skipped} already imported.`,
           ...checked.lines,
         );
         if (out.cardsAdded) res.lines.push(`${out.cardsAdded} card payment(s) added to Card income as pending.`);
+        if (blocked.length) res.lines.push(closedNote(blocked));
         if (neg.length)
           res.lines.push(`${neg.length} negative amount(s) (${neg.map((r) => inr(r.amount)).join(", ")}) are listed on Reconcile for you to confirm.`);
       }
@@ -123,7 +157,8 @@ export async function importFiles(_prev: ImportState, formData: FormData): Promi
     } catch (err) {
       console.error("import failed", f.name, err);
       if (filePath) await store.removeImportFile(filePath).catch(() => undefined);
-      res.lines.push("Not imported. Saving failed part way, so nothing from this file was kept. Please try again.");
+      const m = closedMonthFromError(err);
+      res.lines.push(m ? `Not imported. ${closedMessage(m)}` : "Not imported. Saving failed part way, so nothing from this file was kept. Please try again.");
     }
   }
   revalidatePath("/", "layout");
@@ -215,6 +250,7 @@ async function deleteMonth(formData: FormData): Promise<MonthDeleteState> {
   const t = readTarget(formData);
   if (typeof t === "string") return { error: t };
   if (String(formData.get("confirm") ?? "").trim() !== t.month) return { error: `Type ${t.month} in the box to confirm.` };
+  if ((await closedMonths()).has(t.month)) return { error: `Not deleted. ${closedMessage(t.month)}` };
   try {
     const r = await getStore().deleteImportedMonth(t.source, t.clinic, t.month, user.id);
     revalidatePath("/", "layout");
@@ -232,6 +268,8 @@ async function deleteMonth(formData: FormData): Promise<MonthDeleteState> {
       if (err.code === "NEEDS_MIGRATION") return { error: "Not deleted. This needs a database update that has not been applied yet." };
       return { error: "Choose what to delete and a month." };
     }
+    const m = closedMonthFromError(err);
+    if (m) return { error: `Not deleted. ${closedMessage(m)}` };
     console.error("delete imported month failed", t, err);
     return { error: "Not deleted. Nothing was changed. Check your connection and try again." };
   }
@@ -262,6 +300,7 @@ export async function categoriseDebit(_prev: DebitFormState, formData: FormData)
     const d = await store.read();
     const txn = d.bankTxns.find((t) => t.id === id);
     if (!txn || !(txn.withdrawal > 0)) return { error: "This bank payment was not found. Reload the page and try again." };
+    if ((await closedMonths()).has(monthOf(txn.date))) return { error: closedMessage(monthOf(txn.date)) };
 
     let action: BankRule["action"];
     let category: string | undefined;
@@ -300,6 +339,10 @@ export async function categoriseDebit(_prev: DebitFormState, formData: FormData)
       }
     }
     await store.updateBankTxn(id, { kind: action, category, clinic: ruleClinic, ruleId });
+    await noteActivity(user, "change", "bank_transactions", id, {
+      before: { narration: txn.narration, date: txn.date, kind: txn.kind, category: txn.category ?? null },
+      after: { kind: action, category: category ?? null },
+    });
     await logBankChange(txn, action, category, user.id);
     if (ruleId) await reapply(d.bankTxns.filter((t) => t.id !== id), d.bankRules);
   } catch (err) {
@@ -339,9 +382,10 @@ function isDuplicateRuleError(err: unknown) {
 /** Runs the rules again over debits that are still waiting for an answer. Never changes a debit someone already decided. */
 async function reapply(txns: BankTxn[], rules: BankRule[]) {
   const store = getStore();
+  const closed = await closedMonths();
   let changed = 0;
   for (const t of txns) {
-    if (t.kind !== "UNKNOWN_OUT") continue;
+    if (t.kind !== "UNKNOWN_OUT" || closed.has(monthOf(t.date))) continue;
     const c = classify(t, rules);
     if (c.kind === "UNKNOWN_OUT") continue;
     await store.updateBankTxn(t.id, { kind: c.kind, category: c.category, clinic: c.clinic, ruleId: c.ruleId });
@@ -418,11 +462,15 @@ export async function saveRule(_prev: RuleFormState, formData: FormData): Promis
     let relinked = 0;
     if (id) {
       if (!d.bankRules.some((r) => r.id === id)) return { error: "This rule no longer exists. Reload the page." };
+      const old = d.bankRules.find((r) => r.id === id);
       await store.updateBankRule(id, rule);
+      await noteActivity(user, "change", "bank_rules", id, { before: { ...old }, after: { ...rule } });
       rules = d.bankRules.map((r) => (r.id === id ? { ...rule, id } : r));
       if (updateLinked) {
+        const closed = await closedMonths();
         for (const t of d.bankTxns) {
-          if (t.ruleId !== id || !(t.withdrawal > 0)) continue;
+          // Payments in a closed month keep what they were given.
+          if (t.ruleId !== id || !(t.withdrawal > 0) || closed.has(monthOf(t.date))) continue;
           const c = classify(t, rules);
           await store.updateBankTxn(t.id, { kind: c.kind, category: c.category, clinic: c.clinic, ruleId: c.ruleId });
           await logBankChange(t, c.kind, c.category, user.id);
@@ -431,6 +479,7 @@ export async function saveRule(_prev: RuleFormState, formData: FormData): Promis
       }
     } else {
       const added = await store.addBankRule(rule, user.id);
+      await noteActivity(user, "add", "bank_rules", added.id, { after: added });
       rules = [...d.bankRules, added];
     }
     // Debits re-done above are no longer UNKNOWN_OUT in this snapshot, so reapply leaves them alone.
@@ -451,9 +500,13 @@ export async function saveRule(_prev: RuleFormState, formData: FormData): Promis
 }
 
 export async function deleteRule(_prev: RuleFormState, formData: FormData): Promise<RuleFormState> {
-  await requireAdmin();
+  const user = await requireAdmin();
   try {
-    await getStore().deleteBankRule(String(formData.get("id") ?? ""));
+    const id = String(formData.get("id") ?? "");
+    // Only the fake-data log needs the old rule; on Supabase the database logs it.
+    const old = isSupabaseConfigured ? undefined : (await getStore().read()).bankRules.find((r) => r.id === id);
+    await getStore().deleteBankRule(id);
+    await noteActivity(user, "delete", "bank_rules", id, { before: old ? { ...old } : undefined });
   } catch (err) {
     console.error("delete rule failed", err);
     return { error: "Could not delete the rule. Please try again." };
@@ -469,6 +522,7 @@ export async function saveReconNote(formData: FormData) {
   const month = String(formData.get("month") ?? "");
   const topic = String(formData.get("topic") ?? "") as ReconNote["topic"];
   if (!/^\d{4}-\d{2}$/.test(month) || !TOPICS.includes(topic)) return;
+  if ((await closedMonths()).has(month)) return; // closed months keep their notes
   await getStore().setReconNote(month, topic, String(formData.get("note") ?? "").slice(0, 1000));
   revalidatePath("/reconciliation");
 }

@@ -11,6 +11,10 @@ import { CLINIC_LABEL } from "@/lib/types";
 import { MonthPicker, pickMonth } from "@/components/MonthPicker";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
 import { resetDemoData } from "../actions";
+import { getExtras } from "@/lib/data/extras";
+import { backupAgeText, backupStatus } from "@/lib/backup";
+import { forecast, fromHistory, LOOKBACK_MONTHS } from "@/lib/forecast";
+import { ForecastSection } from "@/components/ForecastSection";
 
 export const dynamic = "force-dynamic";
 
@@ -22,7 +26,8 @@ const SCOPES = [
 
 export default async function DashboardPage({ searchParams }: { searchParams: Promise<{ month?: string; preview?: string; rp?: string; rc?: string }> }) {
   await requireAdmin();
-  const d = await getStore().read();
+  const [d, backups] = await Promise.all([getStore().read(), getExtras().listBackups(1)]);
+  const backup = backups.ready ? backupStatus(backups.value[0]?.takenAt) : undefined;
   const months = monthsIn(d);
   const params = await searchParams;
   const month = pickMonth(months, params.month);
@@ -37,10 +42,24 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   const pendingCard = pendingCards.reduce((s, c) => s + c.amount, 0);
   const today = todayInIndia();
   const overdueCard = pendingCards.filter((c) => cardDaysOverdue(c.date, today) > 0).reduce((s, c) => s + c.amount, 0);
+  const thisMonth = today.slice(0, 7);
+  const fc = forecast(d, "ALL", thisMonth);
+  const sampleHistory = rows.filter((r) => r.month < thisMonth).slice(-LOOKBACK_MONTHS);
+  const fcShown = preview
+    ? fromHistory("ALL", sampleHistory.map((r) => r.month), sampleHistory.map((r) => r.income), sampleHistory.map((r) => r.expenses), thisMonth)
+    : fc;
+  const fcHistory = preview
+    ? sampleHistory.map((r) => ({ month: r.month, profit: r.profit.ALL }))
+    : fc.basedOn.map((m) => ({ month: m, profit: pnl(d, m, "ALL").profit }));
 
   return (
     <>
       <h1>Dashboard</h1>
+      {backup?.due && (
+        <p className="notice">
+          {backupAgeText(backup)}. <a href="/backup">Download a backup</a>
+        </p>
+      )}
       <MonthPicker months={months} active={month} basePath="/dashboard" />
 
       <div className="grid">
@@ -90,6 +109,15 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
           <TrendTable rows={rows} />
         </>
       )}
+
+      <ForecastSection
+        combined={fcShown}
+        clinics={preview ? undefined : { SDC1: forecast(d, "SDC1", thisMonth), SDC2: forecast(d, "SDC2", thisMonth) }}
+        history={fcHistory}
+        chartsOn={chartsOn}
+        sample={preview}
+        currentMonth={thisMonth}
+      />
 
       <AnalyticsSection receipts={d.pjReceipts} preview={preview} latestMonth={months[months.length - 1]} />
 

@@ -34,9 +34,12 @@ export const currentUser = cache(async (): Promise<User | undefined> => {
   return d.users.find((u) => u.id === uid);
 });
 
+/** A login the admin has switched off is treated as logged out (the login page explains why). */
+export const isSwitchedOff = (u: User | undefined) => u?.active === false;
+
 export async function requireUser(): Promise<User> {
   const u = await currentUser();
-  if (!u) redirect("/login");
+  if (!u || isSwitchedOff(u)) redirect("/login");
   return u;
 }
 

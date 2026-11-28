@@ -27,6 +27,8 @@ export interface User {
   role: Role;
   /** Home clinic for staff; used as the default on the entry form. */
   clinic?: ClinicId;
+  /** False when the admin has switched this login off. Missing means on. */
+  active?: boolean;
 }
 
 export interface Expense {
@@ -47,6 +49,9 @@ export interface Expense {
   inPappyJoe?: InPappyJoe;
   enteredBy: string; // user id
   enteredAt: string; // ISO timestamp
+  /** Set when added from a recurring expense (Recurring page), with the month it was for. */
+  recurringId?: string;
+  recurringMonth?: MonthKey;
 }
 
 /** One change of category on an expense typed into the app, or on a bank payment. */

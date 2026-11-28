@@ -22,6 +22,12 @@ const ADMIN_NAV: [string, string][] = [
   ["/card-income", "Card income"],
   ["/payees", "Payees"],
   ["/categories", "Categories"],
+  ["/recurring", "Recurring"],
+  ["/month-close", "Month close"],
+  ["/export", "Export"],
+  ["/staff", "Staff"],
+  ["/activity", "Activity"],
+  ["/backup", "Backup"],
 ];
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
@@ -46,7 +52,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
             </form>
           )}
         </header>
-        {user?.role === "admin" && <Nav items={ADMIN_NAV} />}
+        {user?.role === "admin" && user.active !== false && <Nav items={ADMIN_NAV} />}
         <main>{children}</main>
       </body>
     </html>

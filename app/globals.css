@@ -643,6 +643,50 @@ details.advanced > summary { font-size: 17px; }
 .entries-summary .total { font-size: 22px; font-weight: 700; }
 .entries-summary .split { display: flex; flex-wrap: wrap; gap: 2px 16px; margin-top: 4px; }
 .entries-summary .split b { font-variant-numeric: tabular-nums; }
+
+/* ---- Backups, export, forecast, staff, month close, recurring (PR: admin tools) ---- */
+a.button { display: inline-flex; align-items: center; justify-content: center; text-decoration: none; text-align: center; }
+a.button:hover { background: var(--brand-dark); color: #fff; }
+.button.secondary { background: #fff; color: var(--brand); }
+a.button.secondary:hover { background: var(--brand-soft); color: var(--brand); }
+.card.notice { border: 1px solid #f1d58a; }
+.total-row td { font-weight: 700; border-top: 2px solid var(--line-strong); }
+@media print {
+  .no-print, .top, .nav, .mock-banner { display: none !important; }
+  body { background: #fff; }
+  .print-page .table-wrap { overflow: visible; }
+}
+.forecast .range { display: block; font-size: 12px; color: var(--muted); font-weight: 400; }
+.person-form { display: grid; gap: 6px; min-width: 240px; }
+.person-form label { margin-top: 6px; }
+tr.off td { opacity: 0.6; }
+.small-text { font-size: 13px; font-weight: 400; }
+.badge.act-add { background: var(--good-soft); color: var(--good); }
+.badge.act-change { background: var(--brand-soft); color: var(--brand-dark); }
+.badge.act-delete { background: var(--bad-soft); color: var(--bad); }
+.checklist { list-style: none; padding: 0; margin: 0 0 16px; display: grid; gap: 8px; }
+.checklist li { display: flex; gap: 12px; align-items: flex-start; background: var(--card); border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 12px; }
+.check-icon { flex: none; width: 28px; height: 28px; border-radius: 999px; display: inline-flex; align-items: center; justify-content: center; font-weight: 700; }
+.check-done .check-icon { background: var(--good-soft); color: var(--good); }
+.check-todo .check-icon { background: var(--bad-soft); color: var(--bad); }
+.check-warn .check-icon { background: var(--warn-bg); color: var(--warn-text); }
+.check-na .check-icon { background: var(--bg); color: var(--muted); }
+label.check { display: flex; align-items: center; gap: 8px; font-weight: 600; }
+label.check input { width: auto; }
+.recurring-list { list-style: none; padding: 0; margin: 0 0 16px; display: grid; gap: 8px; }
+.recurring-list > li { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 12px; }
+.recurring-list .top-line { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+.recurring-fields { display: grid; grid-template-columns: 1fr 1fr auto; gap: 8px; align-items: center; margin-top: 8px; }
+.recurring-fields label { display: flex; align-items: center; gap: 4px; margin: 0; }
+.recurring-fields input { min-width: 0; }
+.recurring-fields input[type="number"] { font-size: 17px; }
+.two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.template-form { display: grid; gap: 4px; margin-top: 8px; }
+.template-form label { margin-top: 8px; }
+@media (max-width: 420px) {
+  .recurring-fields { grid-template-columns: 1fr 1fr; }
+  .recurring-fields button { grid-column: 1 / -1; }
+}
 .change-cat { margin-top: 6px; }
 .change-cat summary { color: var(--brand); font-size: 14px; cursor: pointer; }
 .change-cat form { display: flex; gap: 8px; margin-top: 6px; }
