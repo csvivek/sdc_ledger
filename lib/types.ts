@@ -220,6 +220,51 @@ export interface CategoryInfo {
   needsInvoice: boolean;
 }
 
+/**
+ * A gap the reconciliation found, one item at a time: a bank UPI credit with no
+ * PappyJoe receipt, a PappyJoe UPI receipt with no bank credit, money received
+ * that is not UPI or cash, a portal expense not found in the bank, a negative
+ * PappyJoe line, or a month's cash that does not match its deposits.
+ */
+export type GapType = "UPI_BANK_ONLY" | "UPI_PJ_ONLY" | "OTHER_CREDIT" | "PORTAL_ONLY" | "PJ_NEGATIVE" | "CASH_GAP";
+export const GAP_TYPES: GapType[] = ["UPI_BANK_ONLY", "UPI_PJ_ONLY", "OTHER_CREDIT", "PORTAL_ONLY", "PJ_NEGATIVE", "CASH_GAP"];
+
+/** One answer the admin can pick for a gap. Built-in ones have a code; the admin's own have none. */
+export interface GapReason {
+  id: string;
+  gapType: GapType;
+  label: string;
+  /** True when something still has to be fixed, for example in PappyJoe. */
+  followUp: boolean;
+  /** What to do next, shown with a follow-up answer. */
+  todo?: string;
+  code?: string;
+  active: boolean;
+}
+
+/** The admin's answer for one gap item. */
+export interface GapAnswer {
+  gapType: GapType;
+  /** The bank row, PappyJoe receipt or expense id; for a cash gap, the month. */
+  itemKey: string;
+  reasonId: string;
+  note: string;
+  /** The gap's amount when answered. If it changes later (a cash gap), the item is asked again. */
+  amount: number;
+  /** What makes items "the same kind", such as who sent the money. Used to suggest and remember. */
+  signature?: string;
+  answeredBy?: string;
+  answeredAt: string;
+}
+
+/** "Always answer gaps like this one with that reason": the reconciliation's version of a bank rule. */
+export interface GapRule {
+  id: string;
+  gapType: GapType;
+  signature: string;
+  reasonId: string;
+}
+
 export interface LedgerData {
   users: User[];
   categories: string[];
@@ -239,6 +284,13 @@ export interface LedgerData {
   bankRules: BankRule[];
   pjReceipts: PjReceipt[];
   reconNotes: ReconNote[];
+  gapReasons: GapReason[];
+  gapAnswers: GapAnswer[];
+  gapRules: GapRule[];
+  /** Month-end counts of the cash in each clinic's petty cash box. */
+  pettyCounts: PettyCount[];
+  /** Answers offered when a count differs from what the app expected. */
+  pettyCountReasons: PettyCountReason[];
 }
 
 export const CLINIC_LABEL: Record<ClinicOrShared, string> = {
@@ -269,3 +321,30 @@ export const IN_PAPPYJOE_LABEL: Record<InPappyJoe, string> = {
 };
 
 export const CLINICS: ClinicId[] = ["SDC1", "SDC2"];
+
+/**
+ * The cash someone counted in a clinic's petty cash box at the end of a month.
+ * The counted amount is what the next month starts with. The difference from
+ * what the app expected is worked out live (lib/calc.ts pettyCashMonth), so
+ * an expense entered later for that month shrinks it.
+ */
+export interface PettyCount {
+  id: string;
+  clinic: ClinicId;
+  month: MonthKey;
+  counted: number;
+  /** Why the count differs from what the app expected; empty when it matched. */
+  reasonId?: string;
+  note: string;
+  countedBy: string; // user id
+  countedAt: string; // ISO timestamp of the last save
+}
+
+export interface PettyCountReason {
+  id: string;
+  /** Built-in reasons have a code; ones the admin typed do not. */
+  code?: string;
+  label: string;
+  active: boolean;
+  sortOrder: number;
+}

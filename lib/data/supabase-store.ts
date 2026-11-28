@@ -18,12 +18,17 @@ import type {
   CategoryInfo,
   ClinicId,
   Expense,
+  GapAnswer,
+  GapReason,
+  GapRule,
   LedgerData,
   MonthKey,
   PappyJoeMonth,
   Payee,
   PayeeKind,
   PettyCashTransfer,
+  PettyCount,
+  PettyCountReason,
   ReconReason,
   User,
 } from "../types";
@@ -102,6 +107,29 @@ const toBankRule = (r: Row): BankRule => ({
   priority: r.priority,
 });
 
+const toGapReason = (r: Row): GapReason => ({
+  id: r.id,
+  gapType: r.gap_type,
+  label: r.label,
+  followUp: Boolean(r.follow_up),
+  todo: r.todo ?? undefined,
+  code: r.code ?? undefined,
+  active: r.active,
+});
+
+const toGapRule = (r: Row): GapRule => ({ id: r.id, gapType: r.gap_type, signature: r.signature, reasonId: r.reason_id });
+
+const toGapAnswer = (r: Row): GapAnswer => ({
+  gapType: r.gap_type,
+  itemKey: r.item_key,
+  reasonId: r.reason_id,
+  note: r.note ?? "",
+  amount: Number(r.amount),
+  signature: r.signature ?? undefined,
+  answeredBy: r.answered_by ?? undefined,
+  answeredAt: r.answered_at,
+});
+
 const toReceipt = (r: Row): PjReceipt => ({
   id: r.id,
   clinic: r.clinic,
@@ -136,12 +164,31 @@ export const toUser = (r: Row): User => ({
   clinic: r.clinic ?? undefined,
 });
 
+const toPettyCount = (r: Row): PettyCount => ({
+  id: r.id,
+  clinic: r.clinic,
+  month: r.month,
+  counted: Number(r.counted),
+  reasonId: r.reason_id ?? undefined,
+  note: r.note ?? "",
+  countedBy: r.counted_by ?? "",
+  countedAt: r.counted_at,
+});
+
+const toPettyCountReason = (r: Row): PettyCountReason => ({
+  id: r.id,
+  code: r.code ?? undefined,
+  label: r.label,
+  active: r.active,
+  sortOrder: r.sort_order,
+});
+
 export class SupabaseLedgerStore implements LedgerStore {
   constructor(private client: () => Promise<SupabaseClient> = createClient) {}
 
   async read(): Promise<LedgerData> {
     const sb = await this.client();
-    const [profiles, clinics, categories, payees, expenses, transfers, pj, deposits, reasons, cards, txns, rules, receipts, notes] = await Promise.all([
+    const [profiles, clinics, categories, payees, expenses, transfers, pj, deposits, reasons, cards, txns, rules, receipts, notes, gapReasons, gapAnswers, gapRules, counts, countReasons] = await Promise.all([
       sb.from("profiles").select("*"),
       sb.from("clinics").select("*"),
       sb.from("categories").select("*").eq("active", true).order("sort_order"),
@@ -156,6 +203,11 @@ export class SupabaseLedgerStore implements LedgerStore {
       sb.from("bank_rules").select("*").order("priority"),
       selectAll(sb, "pappyjoe_receipts", "receipt_date"),
       sb.from("recon_notes").select("*"),
+      sb.from("gap_reasons").select("*").order("sort_order").order("created_at"),
+      selectAll(sb, "gap_answers", "answered_at"),
+      sb.from("gap_rules").select("*"),
+      sb.from("petty_cash_counts").select("*"),
+      sb.from("petty_count_reasons").select("*").order("sort_order"),
     ]);
 
     const cats = rows(categories, (r) => r);
@@ -214,6 +266,11 @@ export class SupabaseLedgerStore implements LedgerStore {
       bankRules: rows(rules, toBankRule),
       pjReceipts: rows(receipts, toReceipt),
       reconNotes: rows(notes, (r): ReconNote => ({ month: r.month, topic: r.topic, note: r.note })),
+      gapReasons: rows(gapReasons, toGapReason),
+      gapAnswers: rows(gapAnswers, toGapAnswer),
+      gapRules: rows(gapRules, toGapRule),
+      pettyCounts: rows(counts, toPettyCount),
+      pettyCountReasons: rows(countReasons, toPettyCountReason),
     };
   }
 
@@ -682,5 +739,92 @@ export class SupabaseLedgerStore implements LedgerStore {
       ? await sb.from("recon_notes").upsert({ month, topic, note: text, updated_at: new Date().toISOString() }, { onConflict: "month,topic" })
       : await sb.from("recon_notes").delete().eq("month", month).eq("topic", topic);
     if (error) throw new Error(error.message);
+  }
+
+  async addGapReason(r: Pick<GapReason, "gapType" | "label" | "followUp">, createdBy: string): Promise<GapReason> {
+    const sb = await this.client();
+    const { data, error } = await sb
+      .from("gap_reasons")
+      .insert({ gap_type: r.gapType, label: r.label, follow_up: r.followUp, created_by: createdBy })
+      .select()
+      .single();
+    if (error) throw new Error(error.message);
+    return toGapReason(data);
+  }
+
+  async setGapAnswer(a: Omit<GapAnswer, "answeredAt">) {
+    const sb = await this.client();
+    const { error } = await sb.from("gap_answers").upsert(
+      {
+        gap_type: a.gapType,
+        item_key: a.itemKey,
+        reason_id: a.reasonId,
+        note: a.note,
+        amount: a.amount,
+        signature: a.signature ?? null,
+        answered_by: a.answeredBy ?? null,
+        answered_at: new Date().toISOString(),
+      },
+      { onConflict: "gap_type,item_key" },
+    );
+    if (error) throw new Error(error.message);
+  }
+
+  async addGapRule(r: Omit<GapRule, "id">, createdBy: string): Promise<GapRule> {
+    const sb = await this.client();
+    const { data, error } = await sb
+      .from("gap_rules")
+      .insert({ gap_type: r.gapType, signature: r.signature, reason_id: r.reasonId, created_by: createdBy })
+      .select()
+      .single();
+    if (error) throw new Error(error.message);
+    return toGapRule(data);
+  }
+
+  async deleteGapRule(id: string) {
+    const sb = await this.client();
+    const { error } = await sb.from("gap_rules").delete().eq("id", id);
+    if (error) throw new Error(error.message);
+  }
+
+  async savePettyCount(count: Omit<PettyCount, "id" | "countedAt">) {
+    const sb = await this.client();
+    const { data, error } = await sb
+      .from("petty_cash_counts")
+      .upsert(
+        {
+          clinic: count.clinic,
+          month: count.month,
+          counted: count.counted,
+          reason_id: count.reasonId ?? null,
+          note: count.note,
+          counted_by: count.countedBy,
+          counted_at: new Date().toISOString(),
+        },
+        { onConflict: "clinic,month" },
+      )
+      .select()
+      .single();
+    if (error) throw new Error(error.message);
+    return toPettyCount(data);
+  }
+
+  async deletePettyCount(id: string) {
+    const sb = await this.client();
+    const { error } = await sb.from("petty_cash_counts").delete().eq("id", id);
+    if (error) throw new Error(error.message);
+  }
+
+  async addPettyCountReason(label: string) {
+    const sb = await this.client();
+    const { data: last } = await sb.from("petty_count_reasons").select("sort_order").order("sort_order", { ascending: false }).limit(1);
+    const sortOrder = Number(last?.[0]?.sort_order ?? 0) + 1;
+    const { data, error } = await sb
+      .from("petty_count_reasons")
+      .insert({ label: label.trim().replace(/\s+/g, " "), sort_order: sortOrder })
+      .select()
+      .single();
+    if (error) throw new Error(error.message);
+    return toPettyCountReason(data);
   }
 }
