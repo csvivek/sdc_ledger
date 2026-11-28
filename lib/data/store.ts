@@ -29,6 +29,7 @@ import type {
   ReconNote,
   ReconReason,
 } from "../types";
+import { monthRange } from "../expense-view";
 import { buildSeed } from "./seed";
 import { isSupabaseConfigured } from "../supabase/config";
 import { SupabaseLedgerStore } from "./supabase-store";
@@ -41,6 +42,13 @@ export interface LedgerStore {
   formOptions(): Promise<FormOptions>;
   /** Newest entries first, as far as row level security lets this user see, plus the people who entered them. */
   recentExpenses(limit: number): Promise<{ expenses: Expense[]; users: LedgerData["users"] }>;
+  /**
+   * Entries dated in one month (YYYY-MM), newest date first, as far as row
+   * level security lets this user see. At most `limit` rows; `more` says some were left out.
+   */
+  monthExpenses(month: MonthKey, limit: number): Promise<{ expenses: Expense[]; users: LedgerData["users"]; more: boolean }>;
+  /** Date of the oldest entry this user can see, if any. */
+  firstExpenseDate(): Promise<string | undefined>;
   addExpense(e: Omit<Expense, "id" | "enteredAt">): Promise<Expense>;
   /** Adds a payee name, or returns the existing one with the same kind and name (any case). */
   addPayee(kind: PayeeKind, name: string, createdBy: string): Promise<Payee>;
@@ -158,6 +166,20 @@ class JsonFileStore implements LedgerStore {
     const d = await this.load();
     const expenses = [...d.expenses].sort((a, b) => b.enteredAt.localeCompare(a.enteredAt)).slice(0, limit);
     return { expenses, users: d.users };
+  }
+
+  async monthExpenses(month: MonthKey, limit: number) {
+    const d = await this.load();
+    const { from, to } = monthRange(month);
+    const all = d.expenses
+      .filter((e) => e.date >= from && e.date < to)
+      .sort((a, b) => b.date.localeCompare(a.date) || b.enteredAt.localeCompare(a.enteredAt));
+    return { expenses: all.slice(0, limit), users: d.users, more: all.length > limit };
+  }
+
+  async firstExpenseDate() {
+    const d = await this.load();
+    return d.expenses.reduce<string | undefined>((min, e) => (!min || e.date < min ? e.date : min), undefined);
   }
 
   async formOptions() {
