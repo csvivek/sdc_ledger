@@ -1,3 +1,4 @@
+import { SEED_PETTY_REASONS } from "../petty";
 // MOCK DATA. Every name, amount and date here is invented for the prototype.
 // Nothing comes from the real workbook, PappyJoe or HDFC.
 
@@ -210,5 +211,7 @@ export function buildSeed(): LedgerData {
     gapReasons: seedGapReasons(),
     gapAnswers: [],
     gapRules: [],
+    pettyCounts: [],
+    pettyCountReasons: SEED_PETTY_REASONS,
   };
 }

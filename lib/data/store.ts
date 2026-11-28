@@ -28,6 +28,8 @@ import type {
   MonthKey,
   Payee,
   PayeeKind,
+  PettyCount,
+  PettyCountReason,
   PjReceipt,
   ReconNote,
   ReconReason,
@@ -35,6 +37,7 @@ import type {
 import { monthRange } from "../expense-view";
 import { buildSeed } from "./seed";
 import { seedGapReasons } from "../gaps";
+import { SEED_PETTY_REASONS } from "../petty";
 import { isSupabaseConfigured } from "../supabase/config";
 import { SupabaseLedgerStore } from "./supabase-store";
 
@@ -102,6 +105,13 @@ export interface LedgerStore {
   /** Remembers an answer for every later gap with the same signature. The caller checks for duplicates first. */
   addGapRule(r: Omit<GapRule, "id">, createdBy: string): Promise<GapRule>;
   deleteGapRule(id: string): Promise<void>;
+
+  // Month-end petty cash counts (admin only).
+  /** Saves the count for its clinic and month, replacing the one already there. */
+  savePettyCount(count: Omit<PettyCount, "id" | "countedAt">): Promise<PettyCount>;
+  deletePettyCount(id: string): Promise<void>;
+  /** Adds a reason at the end of the list. The caller checks for duplicates first. */
+  addPettyCountReason(label: string, createdBy: string): Promise<PettyCountReason>;
 }
 
 export interface ImportMeta {
@@ -162,6 +172,8 @@ class JsonFileStore implements LedgerStore {
       d.gapReasons ??= seedGapReasons();
       d.gapAnswers ??= [];
       d.gapRules ??= [];
+      d.pettyCounts ??= [];
+      d.pettyCountReasons ??= SEED_PETTY_REASONS;
       return d;
     } catch {
       const seed: StoredData = { ...buildSeed(), imports: [] };
@@ -502,6 +514,34 @@ class JsonFileStore implements LedgerStore {
     const d = await this.load();
     d.gapRules = d.gapRules.filter((r) => r.id !== id);
     await this.save(d);
+  }
+
+  async savePettyCount(count: Omit<PettyCount, "id" | "countedAt">) {
+    const d = await this.load();
+    const old = d.pettyCounts.find((c) => c.clinic === count.clinic && c.month === count.month);
+    const row: PettyCount = { ...count, id: old?.id ?? `pcount_${Date.now()}`, countedAt: new Date().toISOString() };
+    d.pettyCounts = [...d.pettyCounts.filter((c) => c !== old), row];
+    await this.save(d);
+    return row;
+  }
+
+  async deletePettyCount(id: string) {
+    const d = await this.load();
+    d.pettyCounts = d.pettyCounts.filter((c) => c.id !== id);
+    await this.save(d);
+  }
+
+  async addPettyCountReason(label: string) {
+    const d = await this.load();
+    const row: PettyCountReason = {
+      id: `pcr_${Date.now()}`,
+      label: label.trim().replace(/\s+/g, " "),
+      active: true,
+      sortOrder: Math.max(0, ...d.pettyCountReasons.map((r) => r.sortOrder)) + 1,
+    };
+    d.pettyCountReasons.push(row);
+    await this.save(d);
+    return row;
   }
 }
 

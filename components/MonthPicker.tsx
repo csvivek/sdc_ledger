@@ -1,7 +1,18 @@
 import Link from "next/link";
 import { monthLabel } from "@/lib/calc";
 
-export function MonthPicker({ months, active, basePath }: { months: string[]; active: string; basePath: string }) {
+/** `allTime` adds an "All time" chip that links to ?month=all. */
+export function MonthPicker({
+  months,
+  active,
+  basePath,
+  allTime = false,
+}: {
+  months: string[];
+  active: string;
+  basePath: string;
+  allTime?: boolean;
+}) {
   return (
     <div className="month-picker">
       {months.map((m) => (
@@ -9,6 +20,11 @@ export function MonthPicker({ months, active, basePath }: { months: string[]; ac
           {monthLabel(m)}
         </Link>
       ))}
+      {allTime && (
+        <Link href={`${basePath}?month=all`} className={active === "all" ? "active" : ""}>
+          All time
+        </Link>
+      )}
     </div>
   );
 }

@@ -643,3 +643,12 @@ details.advanced > summary { font-size: 17px; }
 .entries-summary .total { font-size: 22px; font-weight: 700; }
 .entries-summary .split { display: flex; flex-wrap: wrap; gap: 2px 16px; margin-top: 4px; }
 .entries-summary .split b { font-variant-numeric: tabular-nums; }
+
+/* ---------- Petty cash month-end count ---------- */
+.count-form { margin-top: 8px; }
+.count-form label { display: block; margin-top: 10px; }
+.count-form select,
+.count-form input[name="otherReason"],
+.count-form input[name="note"] { width: 100%; margin-top: 6px; }
+.count-form .amount-input input { width: 100%; }
+.count-line { display: flex; justify-content: space-between; gap: 12px; padding: 4px 0; font-size: 15px; }
