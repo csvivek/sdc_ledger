@@ -2,14 +2,17 @@ import Link from "next/link";
 import { requireAdmin } from "@/lib/auth";
 import { getStore } from "@/lib/data/store";
 import { inr, monthLabel, monthsIn } from "@/lib/calc";
-import { hintForBankUpi, hintForPjUpi, reconcileMonth } from "@/lib/recon";
+import { reconcileMonth } from "@/lib/recon";
+import { collectGaps, GAP_INFO, gapReadiness, gapStates, reasonsFor } from "@/lib/gaps";
 import { counterparty } from "@/lib/import/hdfc";
-import { CLINIC_LABEL, IN_PAPPYJOE_LABEL, PAID_BY_LABEL, type ReconNote } from "@/lib/types";
+import { CLINIC_LABEL, IN_PAPPYJOE_LABEL, type GapType, type ReconNote } from "@/lib/types";
 import { MonthPicker, pickMonth } from "@/components/MonthPicker";
 import { DebitForm } from "@/components/DebitForm";
 import { DebitNotices } from "@/components/DebitNotices";
+import { GapList } from "@/components/GapList";
 import { saveReconNote } from "../import/actions";
 import { toggleCardCredited } from "../actions";
+import { forgetGapRule } from "./actions";
 
 export const dynamic = "force-dynamic";
 
@@ -30,7 +33,7 @@ function Note({ month, topic, notes }: { month: string; topic: ReconNote["topic"
     <form action={saveReconNote} className="recon-form">
       <input type="hidden" name="month" value={month} />
       <input type="hidden" name="topic" value={topic} />
-      <input name="note" defaultValue={current} placeholder="Explanation (optional)" aria-label="Explanation" />
+      <input name="note" defaultValue={current} placeholder="Note for the month (optional)" aria-label="Note for the month" />
       <button type="submit" className="small">Save</button>
     </form>
   );
@@ -43,7 +46,14 @@ export default async function ReconciliationPage({ searchParams }: { searchParam
   const month = pickMonth(months, (await searchParams).month);
   const r = reconcileMonth(d, month);
   const users = new Map(d.users.map((u) => [u.id, u.name]));
-  const payees = new Map(d.payees.map((p) => [p.id, p.name]));
+  const ready = gapReadiness(r);
+  const gaps = gapStates(d, collectGaps(d, r));
+  const openGaps = gaps.filter((s) => s.status === "open");
+  const toFix = gaps.filter((s) => s.status !== "open" && s.reason?.followUp);
+  const gapList = (type: GapType, title: string, askable: boolean) => (
+    <GapList title={title} month={month} type={type} states={gaps} reasons={reasonsFor(d, type)} askable={askable} users={users} />
+  );
+  const reasonLabel = new Map(d.gapReasons.map((x) => [x.id, x.label]));
 
   const upiDiff = r.upi.pjTotal - r.upi.bank;
   const explained = sum(r.upi.pjOnly, (x) => x.amount) - sum(r.upi.bankOnly, (t) => t.deposit);
@@ -65,11 +75,50 @@ export default async function ReconciliationPage({ searchParams }: { searchParam
         </p>
       )}
 
+      {gaps.length > 0 && (
+        <div className={`card gap-summary ${openGaps.length ? "has-open" : ""}`}>
+          {openGaps.length > 0 ? (
+            <p>
+              <strong>{openGaps.length} item(s) need your answer.</strong> For each one, pick what happened (the likely answer is already
+              picked), or choose Something else and type it. Answers you type are offered next time.
+            </p>
+          ) : (
+            <p>
+              <strong>Every gap this month has an answer.</strong>
+            </p>
+          )}
+          {toFix.length > 0 && (
+            <>
+              <p>
+                <span className="badge warn">{toFix.length} to fix</span> These were answered, but something still needs correcting:
+              </p>
+              <ul className="gap-todo">
+                {toFix.map((s) => (
+                  <li key={`${s.item.type}|${s.item.key}`}>
+                    {inr(s.item.amount)} {s.item.title} ({GAP_INFO[s.item.type].short}): {s.reason?.todo ?? s.reason?.label}
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
+          <div className="chips gap-jump">
+            {(Object.keys(GAP_INFO) as GapType[]).map((t) => {
+              const n = openGaps.filter((s) => s.item.type === t).length;
+              return n ? (
+                <a key={t} href={`#gaps-${t}`} className="badge open">
+                  {GAP_INFO[t].short}: {n}
+                </a>
+              ) : null;
+            })}
+          </div>
+        </div>
+      )}
+
       <div className="grid">
         <div className="card stat">
           <div className="label">UPI: PappyJoe minus bank</div>
           <div className={`value ${Math.round(upiDiff) ? "neg" : "pos"}`}>{inr(upiDiff)}</div>
-          <div className="muted">{r.upi.pjOnly.length + r.upi.bankOnly.length} payments to look at</div>
+          <div className="muted">{openGaps.filter((s) => s.item.type === "UPI_BANK_ONLY" || s.item.type === "UPI_PJ_ONLY").length} payments to answer</div>
         </div>
         <div className="card stat">
           <div className="label">Cash collected, not yet deposited</div>
@@ -101,45 +150,8 @@ export default async function ReconciliationPage({ searchParams }: { searchParam
           amount, within 3 days). {r.upi.matchedCount} receipts worth {inr(r.upi.matchedAmount)} matched.
           {Math.round(timing) !== 0 && ` ${inr(timing)} of the difference is payments matched across the month end.`}
         </p>
-        {r.upi.pjOnly.length > 0 && (
-          <>
-            <strong>In PappyJoe as UPI, not found in bank ({inr(sum(r.upi.pjOnly, (x) => x.amount))})</strong>
-            <div className="table-wrap">
-              <table className="stack">
-                <tbody>
-                  {r.upi.pjOnly.map((x) => (
-                    <tr key={x.id}>
-                      <td data-label="Date">{x.date}</td>
-                      <td data-label="Clinic">{x.clinic}</td>
-                      <td data-label="Patient" className="wrap">{x.patientName} · receipt {x.receiptNo}</td>
-                      <td data-label="Amount" className="num strong">{inr(x.amount)}</td>
-                      <td data-label="Hint" className="wrap muted">{hintForPjUpi(d, x)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </>
-        )}
-        {r.upi.bankOnly.length > 0 && (
-          <>
-            <strong>In bank as UPI, not found in PappyJoe ({inr(sum(r.upi.bankOnly, (t) => t.deposit))})</strong>
-            <div className="table-wrap">
-              <table className="stack">
-                <tbody>
-                  {r.upi.bankOnly.map((t) => (
-                    <tr key={t.id}>
-                      <td data-label="Date">{t.date}</td>
-                      <td data-label="From" className="wrap">{counterparty(t.narration).name}</td>
-                      <td data-label="Amount" className="num strong">{inr(t.deposit)}</td>
-                      <td data-label="Hint" className="wrap muted">{hintForBankUpi(d, t)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </>
-        )}
+        {gapList("UPI_BANK_ONLY", "In bank as UPI, not found in PappyJoe", ready.upi)}
+        {gapList("UPI_PJ_ONLY", "In PappyJoe as UPI, not found in bank", ready.upi)}
         {r.upi.loose.length > 0 && (
           <details>
             <summary className="muted">{r.upi.loose.length} matched by adding payments together (worth a glance)</summary>
@@ -171,6 +183,7 @@ export default async function ReconciliationPage({ searchParams }: { searchParam
           Cash goes in as a few lumps, so this compares month totals. Patient cash is never used for expenses; those come out of
           petty cash, below.
         </p>
+        {gapList("CASH_GAP", "Cash gap this month", ready.cash)}
         <Note month={month} topic="CASH" notes={d.reconNotes} />
       </div>
 
@@ -261,40 +274,8 @@ export default async function ReconciliationPage({ searchParams }: { searchParam
           )}
         </DebitNotices>
 
-        {r.expenses.portalOnly.length > 0 && (
-          <>
-            <strong>Entered in the portal as paid by bank/UPI, not found in the bank</strong>
-            <div className="table-wrap">
-              <table className="stack">
-                <thead>
-                  <tr>
-                    <th>Date</th>
-                    <th>Category</th>
-                    <th>Paid to</th>
-                    <th>Paid by</th>
-                    <th>In PappyJoe?</th>
-                    <th>Entered by</th>
-                    <th className="num">Amount</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {r.expenses.portalOnly.map((e) => (
-                    <tr key={e.id}>
-                      <td data-label="Date">{e.date}</td>
-                      <td data-label="Category">{e.category}</td>
-                      <td data-label="Paid to" className="wrap">{(e.payeeId && payees.get(e.payeeId)) || e.note || "—"}</td>
-                      <td data-label="Paid by">{PAID_BY_LABEL[e.paidBy]}</td>
-                      <td data-label="In PappyJoe?">{e.inPappyJoe ? IN_PAPPYJOE_LABEL[e.inPappyJoe] : "—"}</td>
-                      <td data-label="Entered by">{users.get(e.enteredBy) ?? ""}</td>
-                      <td data-label="Amount" className="num strong">{inr(e.amount)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-            <p className="muted">Possible reasons: paid from another account, paid in another month, or the amount was typed differently.</p>
-          </>
-        )}
+        {gapList("PORTAL_ONLY", "Entered in the portal as paid by bank/UPI, not found in the bank", ready.portal)}
+        {gapList("OTHER_CREDIT", "Other money received (not UPI or cash)", ready.upi)}
 
         <details>
           <summary>Only in the bank, categorised automatically ({r.expenses.bankOnly.length}, {inr(sum(r.expenses.bankOnly, (t) => t.withdrawal))})</summary>
@@ -369,12 +350,9 @@ export default async function ReconciliationPage({ searchParams }: { searchParam
           </details>
         )}
 
-        {(r.expenses.pettyCash.length > 0 || r.expenses.otherCredits.length > 0) && (
+        {r.expenses.pettyCash.length > 0 && (
           <p className="muted">
-            {r.expenses.pettyCash.length > 0 &&
-              `Petty cash sent to the clinics (not an expense): ${r.expenses.pettyCash.map((t) => `${inr(t.withdrawal)} on ${t.date}`).join(", ")}. `}
-            {r.expenses.otherCredits.length > 0 &&
-              `Other money received (not UPI or cash): ${r.expenses.otherCredits.map((t) => `${inr(t.deposit)} on ${t.date}`).join(", ")}.`}
+            Petty cash sent to the clinics (not an expense): {r.expenses.pettyCash.map((t) => `${inr(t.withdrawal)} on ${t.date}`).join(", ")}.
           </p>
         )}
         <Note month={month} topic="EXPENSES" notes={d.reconNotes} />
@@ -389,26 +367,34 @@ export default async function ReconciliationPage({ searchParams }: { searchParam
               These are counted in the totals above exactly as PappyJoe has them. They often sit next to a positive line for the same
               invoice, for example a payment first saved as cash and then corrected to UPI.
             </p>
+            {gapList("PJ_NEGATIVE", "Negative lines", true)}
+          </div>
+        </>
+      )}
+
+      {d.gapRules.length > 0 && (
+        <>
+          <h2>Remembered answers</h2>
+          <div className="card">
+            <p className="muted">
+              Gaps from these senders, patients or payees are answered automatically. Forget one to be asked again.
+            </p>
             <div className="table-wrap">
-              <table className="stack">
+              <table className="list">
                 <tbody>
-                  {r.reversals.map((x) => {
-                    const same = d.pjReceipts.filter((y) => y.clinic === x.clinic && y.invoiceNo === x.invoiceNo && y.id !== x.id && x.invoiceNo);
-                    return (
-                      <tr key={x.id}>
-                        <td data-label="Date">{x.date}</td>
-                        <td data-label="Clinic">{x.clinic}</td>
-                        <td data-label="Patient" className="wrap">{x.patientName} · receipt {x.receiptNo} · invoice {x.invoiceNo}</td>
-                        <td data-label="Payment">{x.paymentInfo}</td>
-                        <td data-label="Amount" className="num neg strong">{inr(x.amount)}</td>
-                        <td data-label="Same invoice" className="wrap muted">
-                          {same.length
-                            ? `Same invoice: ${same.map((y) => `${inr(y.amount)} ${y.paymentInfo} (receipt ${y.receiptNo})`).join(", ")}`
-                            : "No other line on this invoice"}
-                        </td>
-                      </tr>
-                    );
-                  })}
+                  {d.gapRules.map((g) => (
+                    <tr key={g.id}>
+                      <td>{GAP_INFO[g.gapType].short}</td>
+                      <td className="wrap">{g.signature}</td>
+                      <td className="wrap">{reasonLabel.get(g.reasonId) ?? ""}</td>
+                      <td>
+                        <form action={forgetGapRule}>
+                          <input type="hidden" name="id" value={g.id} />
+                          <button type="submit" className="small secondary">Forget</button>
+                        </form>
+                      </td>
+                    </tr>
+                  ))}
                 </tbody>
               </table>
             </div>
