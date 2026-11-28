@@ -5,6 +5,8 @@ import { requireAdmin } from "@/lib/auth";
 import { getStore } from "@/lib/data/store";
 import { reconcileMonth } from "@/lib/recon";
 import { collectGaps, gapStates, normaliseReason } from "@/lib/gaps";
+import { closedMonths } from "@/lib/closed-months";
+import { closedMessage, closedMonthFromError } from "@/lib/month-close";
 import { GAP_TYPES, type GapReason, type GapType } from "@/lib/types";
 
 export type GapFormState = { error?: string; saved?: boolean; notice?: string };
@@ -30,6 +32,7 @@ export async function saveGapAnswer(_prev: GapFormState, formData: FormData): Pr
 
   if (!/^\d{4}-\d{2}$/.test(month) || !GAP_TYPES.includes(gapType) || !itemKey) return { error: "Reload the page and try again." };
   if (!choice) return { error: "Pick what happened, or choose Something else and type it." };
+  if ((await closedMonths()).has(month)) return { error: closedMessage(month) };
 
   const notices: string[] = [];
   try {
@@ -99,6 +102,8 @@ export async function saveGapAnswer(_prev: GapFormState, formData: FormData): Pr
       }
     }
   } catch (err) {
+    const m = closedMonthFromError(err);
+    if (m) return { error: closedMessage(m) };
     console.error("saveGapAnswer failed", gapType, itemKey, err);
     return { error: SAVE_FAILED };
   }

@@ -11,6 +11,7 @@ import { gapRows, monthsBetween } from "./accountant-export";
 import { monthLabel, monthOf } from "./calc";
 import { shiftMonth } from "./expense-view";
 import { matches, reconcileMonth } from "./recon";
+import { collectGaps, gapStates } from "./gaps";
 import type { GapAnswerInfo, PettyCountInfo } from "./admin-types";
 import { CLINIC_LABEL, CLINICS, type LedgerData, type MonthKey } from "./types";
 
@@ -125,13 +126,14 @@ export function closeChecklist(d: LedgerData, month: MonthKey, x: ChecklistExtra
 
   const o = { from: month, to: month, scope: "ALL" as const };
   if (x.gapAnswers) {
-    const rows = gapRows(d, o, x.gapAnswers, false).filter((g) => g.type !== "Bank payment without a category");
-    const open = rows.filter((g) => !g.answer).length;
+    // The same list and answers as the Reconcile page (answered by hand or by a remembered rule).
+    const states = gapStates(d, collectGaps(d, r));
+    const open = states.filter((g) => g.status === "open").length;
     items.push({
       key: "gaps",
       label: "Every reconciliation gap has a reason",
       status: open ? "todo" : "done",
-      detail: open ? `${open} of ${rows.length} gap(s) have no reason yet.` : rows.length ? `All ${rows.length} gap(s) have a reason.` : "No gaps this month.",
+      detail: open ? `${open} of ${states.length} gap(s) have no reason yet.` : states.length ? `All ${states.length} gap(s) have a reason.` : "No gaps this month.",
       href: `/reconciliation?month=${month}`,
     });
   } else {

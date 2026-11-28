@@ -84,8 +84,11 @@ describe("month close checklist", () => {
     expect(gaps.status).toBe("todo");
     const open = Number(gaps.detail.match(/^(\d+) of/)![1]);
     expect(items.find((i) => i.key === "petty")!.detail).toMatch(/Not counted yet: SDC 2/);
-    const done = mc.closeChecklist(d, "2026-10", {
-      gapAnswers: [{ gapType: "UPI_BANK_ONLY", itemKey: id, amount: 999, label: "Not patient income", followUp: false, note: "" }],
+    // Answer the new gap on the Reconcile page's store (PR #15).
+    const reason = d.gapReasons.find((g) => g.gapType === "UPI_BANK_ONLY")!;
+    await store.setGapAnswer({ gapType: "UPI_BANK_ONLY", itemKey: id, reasonId: reason.id, note: "", amount: 999 });
+    const done = mc.closeChecklist(await store.read(), "2026-10", {
+      gapAnswers: [],
       pettyCounts: ["SDC1", "SDC2"].map((c) => ({ clinic: c as "SDC1", month: "2026-10", counted: 1, note: "" })),
     });
     // One fewer gap without a reason (the seed's bank-paid expenses are still unanswered).
@@ -114,7 +117,8 @@ describe("month close checklist", () => {
 describe("closing and reopening", () => {
   it("closes with a reason, blocks entries for that month only, and reopens with a reason", async () => {
     const r1 = await closeMonthAction({}, form({ month: "2026-10" }));
-    expect(r1.error).toMatch(/1 item\(s\) are not done/);
+    // Bank statement missing, and the seed's gaps have no reason yet.
+    expect(r1.error).toMatch(/2 item\(s\) are not done/);
     const r2 = await closeMonthAction({}, form({ month: "2026-10", force: "1", note: "Statement comes later" }));
     expect(r2.ok).toMatch(/is closed/);
     expect(await getExtras().closedMonths()).toEqual(new Set(["2026-10"]));
