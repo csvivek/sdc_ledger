@@ -142,7 +142,7 @@ describe("closing and reopening", () => {
   it("an import skips rows in a closed month and says how many new ones were left out", async () => {
     await closeMonthAction({}, form({ month: "2026-10", force: "1", note: "closing for test" }));
     const fd = new FormData();
-    fd.append("files", hdfcFile([
+    fd.append("bank", hdfcFile([
       { date: "30/10/26", narration: "UPI-LATE OCT PATIENT-REF1", in: 700 },
       { date: "02/11/26", narration: "UPI-NOV PATIENT-REF2", in: 800 },
     ]));

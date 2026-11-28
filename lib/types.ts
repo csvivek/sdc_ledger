@@ -98,6 +98,8 @@ export interface CardPayment {
   patientRef: string;
   amount: number;
   creditedOn?: string; // date it reached the clinic bank account
+  /** Set when the payment came from a PappyJoe import; empty when entered by hand. */
+  pjReceiptId?: string;
 }
 
 /** How a bank row was understood. Credits: UPI_IN, CASH_DEPOSIT, OTHER_IN. Debits: the rest. */
@@ -175,6 +177,24 @@ export interface ImportBatch {
   rowsRead: number;
   rowsAdded: number;
   importedAt: string;
+  /** Where the original uploaded file is kept (private storage); empty for imports made before files were kept. */
+  filePath?: string;
+}
+
+/** One "delete imported data for a month", kept as a record of who removed what. */
+export interface ImportDeletion {
+  id: string;
+  source: "HDFC" | "PAPPYJOE";
+  clinic?: ClinicId;
+  month: MonthKey;
+  rowsDeleted: number;
+  cardsDeleted: number;
+  moneyIn: number;
+  moneyOut: number;
+  firstDate?: string;
+  lastDate?: string;
+  deletedBy: string;
+  deletedAt: string;
 }
 
 /** Admin's explanation for one part of a month's reconciliation. */

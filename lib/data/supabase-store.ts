@@ -10,6 +10,7 @@ import type {
   BankRule,
   BankTxn,
   ImportBatch,
+  ImportDeletion,
   PjReceipt,
   ReconNote,
   CardPayment,
@@ -25,7 +26,17 @@ import type {
   ReconReason,
   User,
 } from "../types";
-import type { FormOptions, ImportMeta, ImportResult, LedgerStore } from "./store";
+import type { FormOptions, ImportMeta, ImportResult, LedgerStore, MonthDeleteResult } from "./store";
+import { ImportDeleteError } from "./store-errors";
+
+/** The bucket that keeps the original uploaded files (private, admin only). */
+const FILES_BUCKET = "import-files";
+
+type PgError = { code?: string; message?: string } | null | undefined;
+/** The database function is not there yet: the safe-imports migration has not been applied. */
+const missingFunction = (e: PgError) => !!e && (e.code === "PGRST202" || e.code === "42883" || /could not find the function/i.test(e.message ?? ""));
+const missingTable = (e: PgError) =>
+  !!e && (e.code === "PGRST205" || e.code === "42P01" || e.code === "42703" || /does not exist|could not find the table/i.test(e.message ?? ""));
 
 type Row = Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
 
@@ -200,6 +211,7 @@ export class SupabaseLedgerStore implements LedgerStore {
         patientRef: r.patient_ref ?? "",
         amount: Number(r.amount),
         creditedOn: r.credited_on ?? undefined,
+        pjReceiptId: r.pappyjoe_receipt_id ?? undefined,
       })),
       bankTxns: rows(txns, toBankTxn),
       bankRules: rows(rules, toBankRule),
@@ -387,89 +399,168 @@ export class SupabaseLedgerStore implements LedgerStore {
 
   async importBank(txns: Omit<BankTxn, "id">[], meta: ImportMeta): Promise<ImportResult> {
     const sb = await this.client();
-    const batchId = await this.addBatch(sb, {
-      source: "HDFC",
-      file_name: meta.fileName,
-      rows_read: txns.length,
-      imported_by: meta.importedBy,
-      ...span(txns.map((t) => t.date)),
-    });
-    let added = 0;
-    for (let i = 0; i < txns.length; i += 500) {
-      const chunk = txns.slice(i, i + 500).map((t) => ({
-        batch_id: batchId,
-        txn_date: t.date,
-        narration: t.narration,
-        ref_no: t.refNo,
-        value_date: t.valueDate,
-        withdrawal: t.withdrawal,
-        deposit: t.deposit,
-        closing_balance: t.balance,
-        kind: t.kind,
-        category: t.category ?? null,
-        clinic: t.clinic ?? null,
-        rule_id: t.ruleId ?? null,
-        fingerprint: t.fingerprint,
-      }));
-      const { data, error } = await sb
-        .from("bank_transactions")
-        .upsert(chunk, { onConflict: "fingerprint", ignoreDuplicates: true })
-        .select("id");
-      if (error) throw new Error(error.message);
-      added += data?.length ?? 0;
+    const rowsJson = txns.map((t) => ({
+      txn_date: t.date,
+      narration: t.narration,
+      ref_no: t.refNo,
+      value_date: t.valueDate,
+      withdrawal: t.withdrawal,
+      deposit: t.deposit,
+      closing_balance: t.balance,
+      kind: t.kind,
+      category: t.category ?? null,
+      clinic: t.clinic ?? null,
+      rule_id: t.ruleId ?? null,
+      fingerprint: t.fingerprint,
+    }));
+    const batch = { file_name: meta.fileName, file_path: meta.filePath ?? null, ...span(txns.map((t) => t.date)) };
+    // One database transaction: the import record and every row, or nothing.
+    const { data, error } = await sb.rpc("import_bank_file", { p_batch: batch, p_rows: rowsJson });
+    if (!error) {
+      const added = Number(data?.added ?? 0);
+      return { read: txns.length, added, skipped: txns.length - added };
     }
-    await this.setBatchAdded(sb, batchId, added);
-    return { read: txns.length, added, skipped: txns.length - added };
+    if (!missingFunction(error)) throw new Error(error.message);
+
+    // Before the safe-imports migration: write step by step, and take everything back out if a step fails.
+    const batchId = await this.addBatch(sb, { source: "HDFC", rows_read: txns.length, imported_by: meta.importedBy, ...batch, file_path: undefined });
+    try {
+      let added = 0;
+      for (let i = 0; i < rowsJson.length; i += 500) {
+        const chunk = rowsJson.slice(i, i + 500).map((r) => ({ ...r, batch_id: batchId }));
+        const res = await sb.from("bank_transactions").upsert(chunk, { onConflict: "fingerprint", ignoreDuplicates: true }).select("id");
+        if (res.error) throw new Error(res.error.message);
+        added += res.data?.length ?? 0;
+      }
+      await this.setBatchAdded(sb, batchId, added);
+      return { read: txns.length, added, skipped: txns.length - added };
+    } catch (err) {
+      await sb.from("bank_transactions").delete().eq("batch_id", batchId);
+      await sb.from("import_batches").delete().eq("id", batchId);
+      throw err;
+    }
   }
 
   async importPappyJoe(clinic: ClinicId, receipts: Omit<PjReceipt, "id" | "clinic">[], meta: ImportMeta): Promise<ImportResult> {
     const sb = await this.client();
+    const rowsJson = receipts.map((r) => ({
+      receipt_date: r.date,
+      patient_name: r.patientName,
+      patient_id: r.patientId,
+      receipt_no: r.receiptNo,
+      invoice_no: r.invoiceNo,
+      invoice_total: r.invoiceTotal,
+      amount: r.amount,
+      mode: r.mode,
+      payment_info: r.paymentInfo,
+      receipt_by: r.receiptBy,
+    }));
+    const batch = { clinic, file_name: meta.fileName, file_path: meta.filePath ?? null, ...span(receipts.map((r) => r.date)) };
+    const { data, error } = await sb.rpc("import_pappyjoe_file", { p_batch: batch, p_rows: rowsJson });
+    if (!error) {
+      const added = Number(data?.added ?? 0);
+      return { read: receipts.length, added, skipped: receipts.length - added, cardsAdded: Number(data?.cards_added ?? 0) };
+    }
+    if (!missingFunction(error)) throw new Error(error.message);
+
+    // Before the safe-imports migration: step by step, undone on failure (card payments go with their receipts).
     const batchId = await this.addBatch(sb, {
       source: "PAPPYJOE",
-      clinic,
-      file_name: meta.fileName,
       rows_read: receipts.length,
       imported_by: meta.importedBy,
-      ...span(receipts.map((r) => r.date)),
+      ...batch,
+      file_path: undefined,
     });
-    const inserted: Row[] = [];
-    for (let i = 0; i < receipts.length; i += 500) {
-      const chunk = receipts.slice(i, i + 500).map((r) => ({
-        batch_id: batchId,
-        clinic,
-        receipt_date: r.date,
-        patient_name: r.patientName,
-        patient_id: r.patientId,
-        receipt_no: r.receiptNo,
-        invoice_no: r.invoiceNo,
-        invoice_total: r.invoiceTotal,
-        amount: r.amount,
-        mode: r.mode,
-        payment_info: r.paymentInfo,
-        receipt_by: r.receiptBy,
-      }));
-      const { data, error } = await sb
-        .from("pappyjoe_receipts")
-        .upsert(chunk, { onConflict: "clinic,receipt_no", ignoreDuplicates: true })
-        .select("*");
-      if (error) throw new Error(error.message);
-      inserted.push(...(data ?? []));
+    try {
+      const inserted: Row[] = [];
+      for (let i = 0; i < rowsJson.length; i += 500) {
+        const chunk = rowsJson.slice(i, i + 500).map((r) => ({ ...r, batch_id: batchId, clinic }));
+        const res = await sb.from("pappyjoe_receipts").upsert(chunk, { onConflict: "clinic,receipt_no", ignoreDuplicates: true }).select("*");
+        if (res.error) throw new Error(res.error.message);
+        inserted.push(...(res.data ?? []));
+      }
+      const cards = inserted
+        .filter((r) => r.mode === "CARD" && Number(r.amount) > 0)
+        .map((r) => ({
+          date: r.receipt_date,
+          clinic,
+          patient_ref: `${r.patient_name} · receipt ${r.receipt_no}`,
+          amount: Number(r.amount),
+          pappyjoe_receipt_id: r.id,
+        }));
+      if (cards.length) {
+        const res = await sb.from("card_payments").insert(cards);
+        if (res.error) throw new Error(res.error.message);
+      }
+      await this.setBatchAdded(sb, batchId, inserted.length);
+      return { read: receipts.length, added: inserted.length, skipped: receipts.length - inserted.length, cardsAdded: cards.length };
+    } catch (err) {
+      await sb.from("pappyjoe_receipts").delete().eq("batch_id", batchId);
+      await sb.from("import_batches").delete().eq("id", batchId);
+      throw err;
     }
-    const cards = inserted
-      .filter((r) => r.mode === "CARD" && Number(r.amount) > 0)
-      .map((r) => ({
-        date: r.receipt_date,
-        clinic,
-        patient_ref: `${r.patient_name} · receipt ${r.receipt_no}`,
-        amount: Number(r.amount),
-        pappyjoe_receipt_id: r.id,
-      }));
-    if (cards.length) {
-      const { error } = await sb.from("card_payments").insert(cards);
-      if (error) throw new Error(error.message);
+  }
+
+  async saveImportFile(path: string, data: Uint8Array, contentType: string) {
+    const sb = await this.client();
+    const { error } = await sb.storage.from(FILES_BUCKET).upload(path, data, { contentType, upsert: false });
+    if (!error) return true;
+    // No bucket yet (migration not applied): import without keeping the file.
+    if (/bucket not found/i.test(error.message)) return false;
+    throw new Error(error.message);
+  }
+
+  async removeImportFile(path: string) {
+    const sb = await this.client();
+    await sb.storage.from(FILES_BUCKET).remove([path]);
+  }
+
+  async getImportFile(batchId: string) {
+    const sb = await this.client();
+    const { data: b, error } = await sb.from("import_batches").select("file_name, file_path").eq("id", batchId).maybeSingle();
+    if (error || !b?.file_path) return undefined;
+    const file = await sb.storage.from(FILES_BUCKET).download(b.file_path);
+    if (file.error || !file.data) return undefined;
+    return { name: b.file_name as string, data: new Uint8Array(await file.data.arrayBuffer()) };
+  }
+
+  async deleteImportedMonth(source: ImportBatch["source"], clinic: ClinicId | undefined, month: string): Promise<MonthDeleteResult> {
+    const sb = await this.client();
+    const { data, error } = await sb.rpc("delete_imported_month", { p_source: source, p_clinic: clinic ?? null, p_month: month });
+    if (error) {
+      if (missingFunction(error)) throw new ImportDeleteError("NEEDS_MIGRATION");
+      const m = /CREDITED_CARDS:(\d+)/.exec(error.message);
+      if (m) throw new ImportDeleteError("CREDITED_CARDS", Number(m[1]));
+      if (/NOTHING_TO_DELETE/.test(error.message)) throw new ImportDeleteError("NOTHING_TO_DELETE");
+      if (/BAD_MONTH|BAD_SOURCE/.test(error.message)) throw new ImportDeleteError("BAD_REQUEST");
+      throw new Error(error.message);
     }
-    await this.setBatchAdded(sb, batchId, inserted.length);
-    return { read: receipts.length, added: inserted.length, skipped: receipts.length - inserted.length, cardsAdded: cards.length };
+    return {
+      rowsDeleted: Number(data?.rows_deleted ?? 0),
+      cardsDeleted: Number(data?.cards_deleted ?? 0),
+      moneyIn: Number(data?.money_in ?? 0),
+      moneyOut: Number(data?.money_out ?? 0),
+    };
+  }
+
+  async listImportDeletions(limit: number): Promise<ImportDeletion[]> {
+    const sb = await this.client();
+    const res = await sb.from("import_deletions").select("*").order("deleted_at", { ascending: false }).limit(limit);
+    if (missingTable(res.error)) return [];
+    return rows(res, (r) => ({
+      id: r.id,
+      source: r.source,
+      clinic: r.clinic ?? undefined,
+      month: r.month,
+      rowsDeleted: r.rows_deleted,
+      cardsDeleted: r.cards_deleted,
+      moneyIn: Number(r.money_in),
+      moneyOut: Number(r.money_out),
+      firstDate: r.first_date ?? undefined,
+      lastDate: r.last_date ?? undefined,
+      deletedBy: r.deleted_by,
+      deletedAt: r.deleted_at,
+    }));
   }
 
   async listImports(limit: number): Promise<ImportBatch[]> {
@@ -485,6 +576,7 @@ export class SupabaseLedgerStore implements LedgerStore {
       rowsRead: r.rows_read,
       rowsAdded: r.rows_added,
       importedAt: r.imported_at,
+      filePath: r.file_path ?? undefined,
     }));
   }
 

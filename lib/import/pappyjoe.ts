@@ -6,6 +6,7 @@
 // Malumichampatti (SDC2).
 
 import type { ClinicId, PayMode } from "../types";
+import { EARLIEST_DATE, realDate, todayIST } from "./hdfc";
 
 export interface ParsedReceipt {
   date: string;
@@ -40,17 +41,24 @@ export function payMode(info: string): PayMode {
   return "OTHER";
 }
 
-/** Excel serial date, "2026-10-31" or "31/10/2026" -> "2026-10-31". */
+/** Excel serial date, "2026-10-31" or "31/10/2026" -> "2026-10-31". Empty when it is not a real date. */
 function isoDate(c: Cell): string {
   if (typeof c === "number" && c > 20000 && c < 80000) {
     return new Date(Math.round((c - 25569) * 86400000)).toISOString().slice(0, 10);
   }
   const s = str(c);
   let m = /^(\d{4})-(\d{2})-(\d{2})/.exec(s);
-  if (m) return `${m[1]}-${m[2]}-${m[3]}`;
+  if (m) return realDate(Number(m[1]), Number(m[2]), Number(m[3]));
   m = /^(\d{1,2})[/-](\d{1,2})[/-](\d{4})$/.exec(s);
-  if (m) return `${m[3]}-${m[2].padStart(2, "0")}-${m[1].padStart(2, "0")}`;
+  if (m) return realDate(Number(m[3]), Number(m[2]), Number(m[1]));
   return "";
+}
+
+/** "1,200.50" or 1200.5 -> 1200.5; NaN when it is not a number; 0 when empty. */
+function money(c: Cell): number {
+  if (typeof c === "number") return c;
+  const s = str(c).replace(/,/g, "");
+  return s ? Number(s) : NaN;
 }
 
 function headerIndex(rows: Cell[][]) {
@@ -61,14 +69,14 @@ export function isPappyJoePayments(rows: Cell[][]) {
   return headerIndex(rows) >= 0;
 }
 
-export function parsePappyJoe(rows: Cell[][], fileName = ""): ParsedPappyJoe {
+export function parsePappyJoe(rows: Cell[][], fileName = "", today = todayIST()): ParsedPappyJoe {
   const errors: string[] = [];
   const warnings: string[] = [];
   const h = headerIndex(rows);
   if (h < 0) return { rows: [], errors: ["This does not look like a PappyJoe Payments export: no Patient Name / Amount Paid header."], warnings };
   const head = rows[h].map(str);
   const col = (name: string) => head.indexOf(name);
-  const need = ["Date", "Patient Name", "Receipt No", "Amount Paid", "Payment Info"];
+  const need = ["Date", "Patient Name", "Receipt No", "Invoice No", "Amount Paid", "Payment Info"];
   const missing = need.filter((n) => col(n) < 0);
   if (missing.length) return { rows: [], errors: [`Missing column(s): ${missing.join(", ")}.`], warnings };
 
@@ -82,15 +90,24 @@ export function parsePappyJoe(rows: Cell[][], fileName = ""): ParsedPappyJoe {
       errors.push(`Row ${i + 1}: could not read the date "${str(r[col("Date")])}".`);
       continue;
     }
+    if (date < EARLIEST_DATE || date > today) {
+      errors.push(`Row ${i + 1}: the date ${date} is ${date > today ? "in the future" : "too old"}.`);
+      continue;
+    }
     const rawName = str(r[col("Patient Name")]);
     const m = /^(.*?)\s*Patient id:-\s*(\S+)\s*$/i.exec(rawName);
     const patientName = (m ? m[1] : rawName).trim();
     const patientId = m ? m[2] : "";
     const pre = /^[A-Z]+/.exec(patientId)?.[0] ?? "";
     if (pre) prefixes.set(pre, (prefixes.get(pre) ?? 0) + 1);
-    const amount = Number(str(r[col("Amount Paid")]).replace(/,/g, ""));
-    if (!Number.isFinite(amount)) {
+    const amount = money(r[col("Amount Paid")]);
+    if (!Number.isFinite(amount) || Math.abs(amount) >= 1e8) {
       errors.push(`Row ${i + 1}: Amount Paid is not a number.`);
+      continue;
+    }
+    const invoiceTotal = col("Invoice Total") >= 0 ? money(r[col("Invoice Total")]) : 0;
+    if (!Number.isFinite(invoiceTotal) || Math.abs(invoiceTotal) >= 1e8) {
+      errors.push(`Row ${i + 1}: Invoice Total is not a number.`);
       continue;
     }
     const paymentInfo = str(r[col("Payment Info")]);
@@ -105,7 +122,7 @@ export function parsePappyJoe(rows: Cell[][], fileName = ""): ParsedPappyJoe {
       patientId,
       receiptNo,
       invoiceNo: col("Invoice No") >= 0 ? str(r[col("Invoice No")]) : "",
-      invoiceTotal: col("Invoice Total") >= 0 ? Number(str(r[col("Invoice Total")]).replace(/,/g, "")) || 0 : 0,
+      invoiceTotal,
       amount,
       mode: payMode(paymentInfo),
       paymentInfo,
