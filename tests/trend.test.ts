@@ -5,7 +5,12 @@ import { SEED_MONTHS } from "@/lib/data/seed";
 import { reconcileMonth } from "@/lib/recon";
 import {
   axisMonth,
+  addMonths,
   CHART_WINDOW_MONTHS,
+  PREVIEW_MONTHS,
+  sameMonthLastYear,
+  windowStart,
+  yoyChangePct,
   compactInr,
   monthsEndingAt,
   niceTicks,
@@ -70,11 +75,12 @@ describe("trendRows", () => {
 });
 
 describe("previewTrendRows", () => {
-  it("gives 12 months of sample numbers ending at the given month, the same every time", () => {
+  it("gives 30 months of sample numbers ending at the given month, the same every time", () => {
     const a = previewTrendRows("2026-11");
-    expect(a).toHaveLength(CHART_WINDOW_MONTHS);
-    expect(a[0].month).toBe("2025-12");
-    expect(a[11].month).toBe("2026-11");
+    expect(a).toHaveLength(PREVIEW_MONTHS);
+    expect(PREVIEW_MONTHS).toBeGreaterThan(24); // more than two years, so last-year comparison can be tried
+    expect(a[0].month).toBe("2024-06");
+    expect(a[a.length - 1].month).toBe("2026-11");
     expect(previewTrendRows("2026-11")).toEqual(a);
     expect(shouldShowCharts(a.length)).toBe(true);
   });
@@ -110,5 +116,49 @@ describe("chart helpers", () => {
     expect(axisMonth("2026-03", true)).toEqual({ month: "Mar", year: "2026" });
     expect(axisMonth("2026-04", false)).toEqual({ month: "Apr" });
     expect(axisMonth("2027-01", false)).toEqual({ month: "Jan", year: "2027" });
+  });
+});
+
+describe("chart window: latest 12 months by default, all when asked", () => {
+  it("starts at the 12th month from the end unless All is on", () => {
+    expect(CHART_WINDOW_MONTHS).toBe(12);
+    expect(windowStart(30, false)).toBe(18);
+    expect(windowStart(30, true)).toBe(0);
+    expect(windowStart(7, false)).toBe(0);
+    expect(windowStart(12, false)).toBe(0);
+  });
+});
+
+describe("year-on-year", () => {
+  it("steps months across year ends", () => {
+    expect(addMonths("2026-01", -12)).toBe("2025-01");
+    expect(addMonths("2026-03", -4)).toBe("2025-11");
+    expect(addMonths("2025-12", 1)).toBe("2026-01");
+  });
+
+  it("finds the same month last year in the full history, even before the 12 months shown", () => {
+    const sample = previewTrendRows("2026-11");
+    const months = sample.map((r) => r.month);
+    const income = sample.map((r) => r.income);
+    const shown = months.slice(windowStart(months.length, false));
+    const ly = sameMonthLastYear(months, income, shown);
+    expect(shown[0]).toBe("2025-12");
+    expect(ly[0]).toBe(income[months.indexOf("2024-12")]);
+    expect(ly.every((v) => v !== null)).toBe(true);
+  });
+
+  it("gives null for months with no data last year, including gaps", () => {
+    const months = ["2026-01", "2026-10", "2027-01", "2027-02"];
+    const ly = sameMonthLastYear(months, [100, 200, 150, 90], ["2027-01", "2027-02"]);
+    expect(ly).toEqual([100, null]);
+    expect(sameMonthLastYear(["2026-10", "2026-11"], [1, 2], ["2026-10", "2026-11"])).toEqual([null, null]);
+  });
+
+  it("works out the change in percent, or none when last year is missing or zero", () => {
+    expect(yoyChangePct(110, 100)).toBe(10);
+    expect(yoyChangePct(80, 100)).toBe(-20);
+    expect(yoyChangePct(-50, -100)).toBe(50);
+    expect(yoyChangePct(100, null)).toBeNull();
+    expect(yoyChangePct(100, 0)).toBeNull();
   });
 });
