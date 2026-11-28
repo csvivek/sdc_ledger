@@ -264,12 +264,17 @@ export async function changeExpenseCategory(_prev: ExpenseCategoryState, formDat
     const store = getStore();
     const { categories } = await store.formOptions();
     if (!categories.includes(category)) return { error: "Pick a category from the list." };
+    const exp = (await store.read()).expenses.find((e) => e.id === id);
+    const closed = exp && (await closedError(exp.date));
+    if (closed) return { error: closed };
     const old = await store.setExpenseCategory(id, category, user.id);
     if (old === undefined) return { error: "This expense was not found. Reload the page and try again." };
     if (old === category) return { ok: `It is already ${category}.` };
     revalidatePath("/", "layout");
     return { ok: `Changed from ${old} to ${category}.` };
   } catch (err) {
+    const m = closedMonthFromError(err);
+    if (m) return { error: closedMessage(m) };
     console.error("changeExpenseCategory failed", id, err);
     return { error: "Could not save. Check your connection and press Save again." };
   }
