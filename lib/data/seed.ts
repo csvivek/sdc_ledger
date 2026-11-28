@@ -3,6 +3,7 @@ import { SEED_PETTY_REASONS } from "../petty";
 // Nothing comes from the real workbook, PappyJoe or HDFC.
 
 import { SEED_RULES } from "../import/rules";
+import { seedGapReasons } from "../gaps";
 import type {
   BankDeposit,
   CardPayment,
@@ -207,6 +208,9 @@ export function buildSeed(): LedgerData {
     bankRules: SEED_RULES.map((r, i) => ({ ...r, id: `rule_${i + 1}` })),
     pjReceipts: [],
     reconNotes: [],
+    gapReasons: seedGapReasons(),
+    gapAnswers: [],
+    gapRules: [],
     pettyCounts: [],
     pettyCountReasons: SEED_PETTY_REASONS,
   };
