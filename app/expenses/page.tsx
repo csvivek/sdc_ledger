@@ -13,12 +13,16 @@ import {
 } from "@/lib/expense-view";
 import { CLINIC_LABEL, IN_PAPPYJOE_LABEL, PAID_BY_LABEL } from "@/lib/types";
 import { EntriesMonthNav } from "@/components/EntriesMonthNav";
+import { ExpenseCategoryForm } from "@/components/ExpenseCategoryForm";
 import { ExpenseForm } from "@/components/ExpenseForm";
 
 export const dynamic = "force-dynamic";
 
 /** More rows than a clinic enters in a month; the page says so if a month ever has more. */
 const MONTH_LIMIT = 1000;
+
+/** "27 Nov" in India time. */
+const shortDate = (iso: string) => new Date(iso).toLocaleDateString("en-IN", { day: "numeric", month: "short", timeZone: "Asia/Kolkata" });
 
 const CLINIC_FILTER_LABEL = { ALL: "All", SDC1: "SDC 1", SDC2: "SDC 2", SHARED: "Shared" } as const;
 
@@ -43,6 +47,10 @@ export default async function ExpensesPage({ searchParams }: { searchParams: Pro
   const totals = entryTotals(mine);
   const payeeNames = Object.fromEntries(d.payees.map((p) => [p.id, p.name]));
   const names = Object.fromEntries(list.users.map((u) => [u.id, u.name]));
+  // Admin sees when an entry's category was changed (newest change first).
+  const changes = isAdmin ? await store.categoryChanges("expense", shown.map((e) => e.id)) : [];
+  const lastChange = new Map<string, (typeof changes)[number]>();
+  for (const c of changes) if (!lastChange.has(c.targetId)) lastChange.set(c.targetId, c);
 
   return (
     <>
@@ -120,7 +128,16 @@ export default async function ExpensesPage({ searchParams }: { searchParams: Pro
               <tr key={e.id}>
                 <td data-label="Date">{e.date}</td>
                 <td data-label="Amount" className="num strong">{inr(e.amount)}</td>
-                <td data-label="Category">{e.category}</td>
+                <td data-label="Category" className="wrap cat-td">
+                  <span>{e.category}</span>
+                  {lastChange.has(e.id) && (
+                    <span className="cat-history muted">
+                      was {lastChange.get(e.id)!.oldValue} · changed by {names[lastChange.get(e.id)!.changedBy] ?? "admin"} on{" "}
+                      {shortDate(lastChange.get(e.id)!.changedAt)}
+                    </span>
+                  )}
+                  {isAdmin && <ExpenseCategoryForm id={e.id} current={e.category} categories={d.categories} />}
+                </td>
                 <td data-label="Paid to">{e.payeeId ? (payeeNames[e.payeeId] ?? "") : ""}</td>
                 <td data-label="Invoice no.">{e.invoiceNo ?? ""}</td>
                 <td data-label="In PappyJoe?">{e.inPappyJoe ? IN_PAPPYJOE_LABEL[e.inPappyJoe] : <span className="muted">not asked</span>}</td>
