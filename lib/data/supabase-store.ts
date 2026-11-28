@@ -17,6 +17,9 @@ import type {
   CategoryInfo,
   ClinicId,
   Expense,
+  GapAnswer,
+  GapReason,
+  GapRule,
   LedgerData,
   MonthKey,
   PappyJoeMonth,
@@ -101,6 +104,29 @@ const toBankRule = (r: Row): BankRule => ({
   priority: r.priority,
 });
 
+const toGapReason = (r: Row): GapReason => ({
+  id: r.id,
+  gapType: r.gap_type,
+  label: r.label,
+  followUp: Boolean(r.follow_up),
+  todo: r.todo ?? undefined,
+  code: r.code ?? undefined,
+  active: r.active,
+});
+
+const toGapRule = (r: Row): GapRule => ({ id: r.id, gapType: r.gap_type, signature: r.signature, reasonId: r.reason_id });
+
+const toGapAnswer = (r: Row): GapAnswer => ({
+  gapType: r.gap_type,
+  itemKey: r.item_key,
+  reasonId: r.reason_id,
+  note: r.note ?? "",
+  amount: Number(r.amount),
+  signature: r.signature ?? undefined,
+  answeredBy: r.answered_by ?? undefined,
+  answeredAt: r.answered_at,
+});
+
 const toReceipt = (r: Row): PjReceipt => ({
   id: r.id,
   clinic: r.clinic,
@@ -140,7 +166,7 @@ export class SupabaseLedgerStore implements LedgerStore {
 
   async read(): Promise<LedgerData> {
     const sb = await this.client();
-    const [profiles, clinics, categories, payees, expenses, transfers, pj, deposits, reasons, cards, txns, rules, receipts, notes] = await Promise.all([
+    const [profiles, clinics, categories, payees, expenses, transfers, pj, deposits, reasons, cards, txns, rules, receipts, notes, gapReasons, gapAnswers, gapRules] = await Promise.all([
       sb.from("profiles").select("*"),
       sb.from("clinics").select("*"),
       sb.from("categories").select("*").eq("active", true).order("sort_order"),
@@ -155,6 +181,9 @@ export class SupabaseLedgerStore implements LedgerStore {
       sb.from("bank_rules").select("*").order("priority"),
       selectAll(sb, "pappyjoe_receipts", "receipt_date"),
       sb.from("recon_notes").select("*"),
+      sb.from("gap_reasons").select("*").order("sort_order").order("created_at"),
+      selectAll(sb, "gap_answers", "answered_at"),
+      sb.from("gap_rules").select("*"),
     ]);
 
     const cats = rows(categories, (r) => r);
@@ -213,6 +242,9 @@ export class SupabaseLedgerStore implements LedgerStore {
       bankRules: rows(rules, toBankRule),
       pjReceipts: rows(receipts, toReceipt),
       reconNotes: rows(notes, (r): ReconNote => ({ month: r.month, topic: r.topic, note: r.note })),
+      gapReasons: rows(gapReasons, toGapReason),
+      gapAnswers: rows(gapAnswers, toGapAnswer),
+      gapRules: rows(gapRules, toGapRule),
     };
   }
 
@@ -632,6 +664,52 @@ export class SupabaseLedgerStore implements LedgerStore {
     const { error } = text
       ? await sb.from("recon_notes").upsert({ month, topic, note: text, updated_at: new Date().toISOString() }, { onConflict: "month,topic" })
       : await sb.from("recon_notes").delete().eq("month", month).eq("topic", topic);
+    if (error) throw new Error(error.message);
+  }
+
+  async addGapReason(r: Pick<GapReason, "gapType" | "label" | "followUp">, createdBy: string): Promise<GapReason> {
+    const sb = await this.client();
+    const { data, error } = await sb
+      .from("gap_reasons")
+      .insert({ gap_type: r.gapType, label: r.label, follow_up: r.followUp, created_by: createdBy })
+      .select()
+      .single();
+    if (error) throw new Error(error.message);
+    return toGapReason(data);
+  }
+
+  async setGapAnswer(a: Omit<GapAnswer, "answeredAt">) {
+    const sb = await this.client();
+    const { error } = await sb.from("gap_answers").upsert(
+      {
+        gap_type: a.gapType,
+        item_key: a.itemKey,
+        reason_id: a.reasonId,
+        note: a.note,
+        amount: a.amount,
+        signature: a.signature ?? null,
+        answered_by: a.answeredBy ?? null,
+        answered_at: new Date().toISOString(),
+      },
+      { onConflict: "gap_type,item_key" },
+    );
+    if (error) throw new Error(error.message);
+  }
+
+  async addGapRule(r: Omit<GapRule, "id">, createdBy: string): Promise<GapRule> {
+    const sb = await this.client();
+    const { data, error } = await sb
+      .from("gap_rules")
+      .insert({ gap_type: r.gapType, signature: r.signature, reason_id: r.reasonId, created_by: createdBy })
+      .select()
+      .single();
+    if (error) throw new Error(error.message);
+    return toGapRule(data);
+  }
+
+  async deleteGapRule(id: string) {
+    const sb = await this.client();
+    const { error } = await sb.from("gap_rules").delete().eq("id", id);
     if (error) throw new Error(error.message);
   }
 }
