@@ -10,6 +10,9 @@ export const CHART_THRESHOLD_MONTHS = 6;
 /** The charts show at most this many of the latest months, so bars stay wide enough to tap on a phone. The table shows all. */
 export const CHART_WINDOW_MONTHS = 12;
 
+/** Sample preview spans more than two years, so last-year comparison and the All switch can be tried. */
+export const PREVIEW_MONTHS = 30;
+
 export function shouldShowCharts(monthsOfData: number): boolean {
   return monthsOfData > CHART_THRESHOLD_MONTHS;
 }
@@ -54,7 +57,7 @@ export function monthsEndingAt(end: MonthKey, count: number): MonthKey[] {
  * SAMPLE NUMBERS for previewing the charts before there are 7 real months.
  * Invented, deterministic (same output every time), never stored.
  */
-export function previewTrendRows(end: MonthKey, count = CHART_WINDOW_MONTHS): TrendRow[] {
+export function previewTrendRows(end: MonthKey, count = PREVIEW_MONTHS): TrendRow[] {
   return monthsEndingAt(end, count).map((month, i) => {
     const wave = Math.sin(i * 0.9);
     const inc1 = Math.round((470000 + 30000 * wave + 4000 * i) / 500) * 500;
@@ -102,4 +105,31 @@ export function axisMonth(m: MonthKey, first: boolean): { month: string; year?: 
   const [y, mo] = m.split("-").map(Number);
   const month = new Date(y, mo - 1, 1).toLocaleDateString("en-IN", { month: "short" });
   return first || mo === 1 ? { month, year: String(y) } : { month };
+}
+
+/** The month `k` months after `m` (negative k goes back). */
+export function addMonths(m: MonthKey, k: number): MonthKey {
+  const [y, mo] = m.split("-").map(Number);
+  const t = y * 12 + (mo - 1) + k;
+  return `${Math.floor(t / 12)}-${String((t % 12) + 1).padStart(2, "0")}`;
+}
+
+/** Index of the first month a chart shows: the latest CHART_WINDOW_MONTHS by default, every month when showAll is on. */
+export function windowStart(monthCount: number, showAll: boolean): number {
+  return showAll ? 0 : Math.max(0, monthCount - CHART_WINDOW_MONTHS);
+}
+
+/**
+ * For each month in `shown`, the value for the same month one year earlier, taken from the full history
+ * (`months` with `values`, same order). Null when there is no data for that month last year.
+ */
+export function sameMonthLastYear(months: MonthKey[], values: number[], shown: MonthKey[]): (number | null)[] {
+  const at = new Map(months.map((m, i) => [m, values[i]]));
+  return shown.map((m) => at.get(addMonths(m, -12)) ?? null);
+}
+
+/** Change from last year to this year in percent, rounded; null when last year is missing or zero. */
+export function yoyChangePct(current: number, lastYear: number | null): number | null {
+  if (lastYear === null || lastYear === 0) return null;
+  return Math.round(((current - lastYear) / Math.abs(lastYear)) * 100);
 }

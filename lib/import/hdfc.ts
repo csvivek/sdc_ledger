@@ -44,17 +44,43 @@ const num = (c: Cell) => {
 };
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
-/** "01/10/26" or "01/10/2026" -> "2026-10-01". Empty string when it is not a date. */
+/** "01/10/26" or "01/10/2026" -> "2026-10-01". Empty string when it is not a real calendar date. */
 export function ddmmyy(c: Cell): string {
   const m = /^(\d{1,2})\/(\d{1,2})\/(\d{2}|\d{4})$/.exec(str(c));
   if (!m) return "";
   const y = m[3].length === 2 ? 2000 + Number(m[3]) : Number(m[3]);
-  return `${y}-${m[2].padStart(2, "0")}-${m[1].padStart(2, "0")}`;
+  return realDate(y, Number(m[2]), Number(m[1]));
 }
+
+/** "YYYY-MM-DD" when the day exists (no 31/02), else "". */
+export function realDate(y: number, mo: number, d: number): string {
+  const t = new Date(Date.UTC(y, mo - 1, d));
+  if (t.getUTCFullYear() !== y || t.getUTCMonth() !== mo - 1 || t.getUTCDate() !== d) return "";
+  return t.toISOString().slice(0, 10);
+}
+
+/** Today in India, as YYYY-MM-DD. */
+export function todayIST(now = new Date()): string {
+  return new Date(now.getTime() + 330 * 60000).toISOString().slice(0, 10);
+}
+
+/** Earliest date the app accepts in an import; older dates mean a misread file. */
+export const EARLIEST_DATE = "2020-01-01";
 
 export function isHdfcStatement(rows: Cell[][]): boolean {
   return findHeader(rows) >= 0;
 }
+
+// The seven columns of the HDFC statement, in order.
+const HDFC_COLUMNS: [string, RegExp][] = [
+  ["Date", /^date$/i],
+  ["Narration", /^narration$/i],
+  ["Chq./Ref.No.", /^chq.*ref/i],
+  ["Value Dt", /^value\s*d/i],
+  ["Withdrawal Amt.", /^withdrawal/i],
+  ["Deposit Amt.", /^deposit/i],
+  ["Closing Balance", /^closing\s*bal/i],
+];
 
 function findHeader(rows: Cell[][]): number {
   return rows.findIndex(
@@ -62,11 +88,32 @@ function findHeader(rows: Cell[][]): number {
   );
 }
 
-export function parseHdfc(rows: Cell[][]): ParsedStatement {
+export function parseHdfc(rows: Cell[][], today = todayIST()): ParsedStatement {
   const errors: string[] = [];
   const checks: string[] = [];
   const h = findHeader(rows);
   if (h < 0) return { rows: [], errors: ["This does not look like an HDFC statement: no Date / Narration header row."], checks };
+  const wrongCols = HDFC_COLUMNS.filter(([, re], i) => !re.test(str(rows[h][i])));
+  if (wrongCols.length)
+    return {
+      rows: [],
+      errors: [`The column headings are not the usual HDFC ones (expected ${HDFC_COLUMNS.map(([n]) => n).join(" | ")}).`],
+      checks,
+    };
+  // HDFC's name is in the heading of a download, and in the footer (GSTIN line) even if the heading was cut off.
+  if (!rows.some((r) => r.some((c) => /\bHDFC\s+BANK\b/i.test(str(c)))))
+    return { rows: [], errors: ["This statement does not say HDFC Bank anywhere. Only the clinic's HDFC account statement can be imported."], checks };
+
+  // "Statement From : 01/10/2026 To : 31/10/2026" when the heading is there.
+  let from = "";
+  let to = "";
+  for (const r of rows.slice(0, h)) {
+    const m = /Statement\s+From\s*:\s*(\d{1,2}\/\d{1,2}\/\d{2,4})\s+To\s*:\s*(\d{1,2}\/\d{1,2}\/\d{2,4})/i.exec(r.map(str).join(" "));
+    if (m) {
+      from = ddmmyy(m[1]);
+      to = ddmmyy(m[2]);
+    }
+  }
 
   const out: ParsedBankRow[] = [];
   const seen = new Map<string, number>();
@@ -84,8 +131,21 @@ export function parseHdfc(rows: Cell[][]): ParsedStatement {
       errors.push(`Row ${i + 1}: could not read the date "${first}".`);
       continue;
     }
+    if (date < EARLIEST_DATE || date > today) {
+      errors.push(`Row ${i + 1}: the date ${first} is ${date > today ? "in the future" : "too old"}.`);
+      continue;
+    }
+    if (from && to && (date < from || date > to)) {
+      errors.push(`Row ${i + 1}: the date ${first} is outside the statement period.`);
+      continue;
+    }
     const withdrawal = round2(num(r[4]));
     const deposit = round2(num(r[5]));
+    const balance = round2(num(r[6]));
+    if (![withdrawal, deposit, balance].every(Number.isFinite) || withdrawal < 0 || deposit < 0) {
+      errors.push(`Row ${i + 1}: an amount is not a number.`);
+      continue;
+    }
     if (!(withdrawal > 0) === !(deposit > 0)) {
       errors.push(`Row ${i + 1}: expected exactly one of withdrawal or deposit.`);
       continue;
@@ -97,7 +157,7 @@ export function parseHdfc(rows: Cell[][]): ParsedStatement {
       valueDate: ddmmyy(r[3]) || date,
       withdrawal,
       deposit,
-      balance: round2(num(r[6])),
+      balance,
       fingerprint: "",
     };
     // Same date, reference, amount and closing balance = same bank row. The
@@ -126,6 +186,10 @@ export function parseHdfc(rows: Cell[][]): ParsedStatement {
   }
 
   if (out.length === 0) errors.push("No transactions found in the statement.");
+  if (!summary && out.length)
+    errors.push("The STATEMENT SUMMARY at the end is missing, so the totals cannot be checked. Upload the statement exactly as downloaded.");
+  else if (summary && ![summary.opening, summary.debits, summary.credits, summary.closing].every(Number.isFinite))
+    errors.push("The STATEMENT SUMMARY could not be read.");
   if (summary && out.length) {
     const debits = round2(out.reduce((a, r) => a + r.withdrawal, 0));
     const credits = round2(out.reduce((a, r) => a + r.deposit, 0));
@@ -147,6 +211,8 @@ export function parseHdfc(rows: Cell[][]): ParsedStatement {
         break;
       }
     }
+    if (Math.abs(out[out.length - 1].balance - summary.closing) > 0.01)
+      errors.push(`The last closing balance does not match the summary's closing balance (${summary.closing}).`);
   }
   return { rows: out, summary, errors, checks };
 }
