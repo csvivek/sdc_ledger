@@ -85,7 +85,7 @@ const FIELD_LABEL: Record<string, string> = {
 
 const IGNORED = new Set(["id", "created_at", "updated_at", "entered_at", "entered_by", "created_by", "fingerprint", "batch_id", "rule_id"]);
 
-const money = (v: unknown) => (typeof v === "number" || (typeof v === "string" && v !== "" && !isNaN(Number(v))) ? "₹" + Number(v).toLocaleString("en-IN") : String(v ?? ""));
+const money = (v: unknown) => (typeof v === "number" || (typeof v === "string" && v !== "" && !isNaN(Number(v))) ? (Number(v) < 0 ? "-" : "") + "₹" + Math.abs(Number(v)).toLocaleString("en-IN") : String(v ?? ""));
 
 function show(field: string, v: unknown): string {
   if (v === null || v === undefined || v === "") return "empty";

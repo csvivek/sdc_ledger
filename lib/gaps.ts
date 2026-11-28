@@ -20,7 +20,7 @@ import type { GapAnswer, GapReason, GapRule, GapType, LedgerData } from "./types
 const DAY = 86400000;
 const days = (a: string, b: string) => Math.round((Date.parse(b) - Date.parse(a)) / DAY);
 const eq = (a: number, b: number) => Math.abs(a - b) < 0.005;
-const fmt = (n: number) => "₹" + n.toLocaleString("en-IN", { maximumFractionDigits: 2 });
+const fmt = (n: number) => (n < 0 ? "-" : "") + "₹" + Math.abs(n).toLocaleString("en-IN", { maximumFractionDigits: 2 });
 
 export const GAP_INFO: Record<GapType, { question: string; short: string }> = {
   UPI_BANK_ONLY: { question: "Why is this bank UPI credit not in PappyJoe?", short: "Bank UPI not in PappyJoe" },

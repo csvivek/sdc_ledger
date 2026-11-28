@@ -6,7 +6,8 @@ import { reconcileMonth } from "@/lib/recon";
 import { collectGaps, GAP_INFO, gapReadiness, gapStates, reasonsFor } from "@/lib/gaps";
 import { counterparty } from "@/lib/import/hdfc";
 import { CLINIC_LABEL, IN_PAPPYJOE_LABEL, type GapType, type ReconNote } from "@/lib/types";
-import { MonthPicker, pickMonth } from "@/components/MonthPicker";
+import { pickMonth } from "@/components/MonthPicker";
+import { BooksBar } from "@/components/BooksBar";
 import { DebitForm } from "@/components/DebitForm";
 import { DebitNotices } from "@/components/DebitNotices";
 import { GapList } from "@/components/GapList";
@@ -42,6 +43,8 @@ function Note({ month, topic, notes }: { month: string; topic: ReconNote["topic"
 export default async function ReconciliationPage({ searchParams }: { searchParams: Promise<{ month?: string }> }) {
   await requireAdmin();
   const d = await getStore().read();
+  // Every month, oldest first: these used to be answered on Import.
+  const unknownAll = d.bankTxns.filter((t) => t.kind === "UNKNOWN_OUT").sort((a, b) => a.date.localeCompare(b.date));
   const months = monthsIn(d);
   const month = pickMonth(months, (await searchParams).month);
   const r = reconcileMonth(d, month);
@@ -72,7 +75,21 @@ export default async function ReconciliationPage({ searchParams }: { searchParam
   return (
     <>
       <h1>Reconcile {monthLabel(month)}</h1>
-      <MonthPicker months={months} active={month} basePath="/reconciliation" />
+      <BooksBar d={d} month={month} active="/reconciliation" />
+      {unknownAll.length > 0 && (
+        <section className="card">
+          <h2 style={{ marginTop: 0 }}>Bank payments that need a category ({unknownAll.length})</h2>
+          <p className="muted">
+            These did not match any rule. Say what each one is. Leave &quot;Remember&quot; ticked and the app will categorise the same kind of
+            payment by itself from now on.
+          </p>
+          <DebitNotices>
+            {unknownAll.map((t) => (
+              <DebitForm key={t.id} txn={t} categories={d.categories} />
+            ))}
+          </DebitNotices>
+        </section>
+      )}
       {missing.length > 0 && (
         <p className="mock-note">
           Not imported for this month yet: {missing.join(", ")}. <Link href="/import">Import files</Link>
@@ -287,16 +304,11 @@ export default async function ReconciliationPage({ searchParams }: { searchParam
           portal entry still count in the P&amp;L under their category, so nothing is missed or counted twice.
         </p>
 
-        <DebitNotices>
-          {r.expenses.unknown.length > 0 && (
-            <>
-              <strong>Needs your answer</strong>
-              {r.expenses.unknown.map((t) => (
-                <DebitForm key={t.id} txn={t} categories={d.categories} />
-              ))}
-            </>
-          )}
-        </DebitNotices>
+        {r.expenses.unknown.length > 0 && (
+          <p className="notice">
+            {r.expenses.unknown.length} bank payment(s) this month need a category: answer them at the top of this page.
+          </p>
+        )}
 
         {gapList("PORTAL_ONLY", "Entered in the portal as paid by bank/UPI, not found in the bank", ready.portal)}
         {gapList("OTHER_CREDIT", "Other money received (not UPI or cash)", ready.upi)}

@@ -68,7 +68,7 @@ function coverage(dates: string[], month: MonthKey): { status: CheckStatus; last
   return { status: later || daysBetween(last, lastDay(month)) <= END_SLACK_DAYS ? "done" : "todo", last };
 }
 
-const inr = (n: number) => "₹" + Math.round(n).toLocaleString("en-IN");
+const inr = (n: number) => (Math.round(n) < 0 ? "-" : "") + "₹" + Math.abs(Math.round(n)).toLocaleString("en-IN");
 
 export interface ChecklistExtras {
   /** Present once PR #15's gap answer tables exist. */
@@ -121,7 +121,7 @@ export function closeChecklist(d: LedgerData, month: MonthKey, x: ChecklistExtra
     label: "Every bank payment has a category",
     status: unknown ? "todo" : "done",
     detail: unknown ? `${unknown} bank payment(s) still need a category.` : "All bank payments are sorted.",
-    href: "/import",
+    href: `/reconciliation?month=${month}`,
   });
 
   const o = { from: month, to: month, scope: "ALL" as const };

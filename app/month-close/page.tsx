@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { BooksBar } from "@/components/BooksBar";
 import { requireAdmin } from "@/lib/auth";
 import { getStore } from "@/lib/data/store";
 import { getExtras } from "@/lib/data/extras";
@@ -52,14 +53,7 @@ export default async function MonthClosePage({ searchParams }: { searchParams: P
         petty cash, notes and answers) until the admin reopens it with a reason.
       </p>
 
-      <nav className="month-picker" aria-label="Month">
-        {months.map((m) => (
-          <Link key={m} href={`/month-close?month=${m}`} className={m === month ? "active" : ""}>
-            {closedSet.has(m) ? "🔒 " : ""}
-            {monthLabel(m)}
-          </Link>
-        ))}
-      </nav>
+      <BooksBar d={d} month={month} active="/month-close" />
 
       {!closes.ready && (
         <p className="notice">Month close is not switched on yet. The checklist below works; closing needs the month close SQL to be run first.</p>

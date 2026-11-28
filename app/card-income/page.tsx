@@ -1,14 +1,17 @@
 import { requireAdmin } from "@/lib/auth";
 import { getStore } from "@/lib/data/store";
-import { cardDaysOverdue, cardDueDate, inr, todayInIndia } from "@/lib/calc";
+import { cardDaysOverdue, cardDueDate, inr, monthsIn, todayInIndia } from "@/lib/calc";
+import { BooksBar } from "@/components/BooksBar";
+import { pickMonth } from "@/components/MonthPicker";
 import { CLINIC_LABEL } from "@/lib/types";
 import { toggleCardCredited } from "../actions";
 
 export const dynamic = "force-dynamic";
 
-export default async function CardIncomePage() {
+export default async function CardIncomePage({ searchParams }: { searchParams: Promise<{ month?: string }> }) {
   await requireAdmin();
   const d = await getStore().read();
+  const month = pickMonth(monthsIn(d), (await searchParams).month);
   const pending = d.cardPayments.filter((c) => !c.creditedOn).sort((a, b) => a.date.localeCompare(b.date));
   const done = d.cardPayments.filter((c) => c.creditedOn).sort((a, b) => b.date.localeCompare(a.date));
   const total = pending.reduce((s, c) => s + c.amount, 0);
@@ -24,6 +27,7 @@ export default async function CardIncomePage() {
   return (
     <>
       <h1>Card income pending</h1>
+      <BooksBar d={d} month={month} active="/card-income" />
       <p className="muted">
         Card payments recorded in PappyJoe that the doctor collected and has not yet paid into the clinic account.
       </p>

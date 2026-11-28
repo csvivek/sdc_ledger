@@ -33,8 +33,10 @@ export function monthLabel(m: MonthKey) {
   return new Date(y, mo - 1, 1).toLocaleDateString("en-IN", { month: "short", year: "numeric" });
 }
 
+/** "₹1,23,456", or "-₹3,554" for a negative amount (sign before the rupee symbol). */
 export function inr(n: number) {
-  return "₹" + Math.round(n).toLocaleString("en-IN");
+  const r = Math.round(n);
+  return (r < 0 ? "-" : "") + "₹" + Math.abs(r).toLocaleString("en-IN");
 }
 
 /**

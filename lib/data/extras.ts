@@ -22,6 +22,7 @@ import type { ActivityEntry, ActivityFilter } from "../activity";
 import type { ClinicId, MonthKey, Role, User } from "../types";
 import type { CheckItem, CloseEvent, MonthClose } from "../month-close";
 import type { RecurringTemplate, TemplateInput } from "../recurring";
+import { parseMyPettyCash, type MyPettyCash } from "../staff-petty";
 
 type Row = Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
 
@@ -63,6 +64,10 @@ export interface ExtrasStore {
   // Recurring expenses (admin only)
   /** Every template, hidden ones too. Not ready until the recurring SQL is run. */
   listTemplates(): Promise<Maybe<RecurringTemplate[]>>;
+
+  // Staff petty cash
+  /** The logged-in person's own clinic petty cash figures; undefined when they have no clinic. Not ready until its SQL is run. */
+  myPettyCash(userId: string): Promise<Maybe<MyPettyCash | undefined>>;
   /** Adds a template, or changes the one with `id`. Throws DuplicateLabelError for a name already used. */
   saveTemplate(t: TemplateInput, id?: string): Promise<RecurringTemplate>;
   setTemplateActive(id: string, active: boolean): Promise<void>;
@@ -294,6 +299,22 @@ class JsonExtrasStore implements ExtrasStore {
     const x = await loadExtrasFile();
     // Newest first; two downloads in the same millisecond keep the later one first.
     return ready([...x.backups].reverse().sort((a, b) => b.takenAt.localeCompare(a.takenAt)).slice(0, limit));
+  }
+
+  async myPettyCash(userId: string) {
+    const d = await getStore().read();
+    const clinic = d.users.find((u) => u.id === userId)?.clinic;
+    if (clinic !== "SDC1" && clinic !== "SDC2") return ready(undefined);
+    return ready(
+      parseMyPettyCash({
+        clinic,
+        opening: d.pettyCashOpening[clinic],
+        transfers: d.pettyCashTransfers.filter((t) => t.clinic === clinic),
+        bank: d.bankTxns.filter((t) => t.kind === "PETTY_CASH").map((t) => ({ date: t.date, withdrawal: t.withdrawal })),
+        spent: d.expenses.filter((e) => e.paidBy === "PETTY_CASH" && e.pettyCashClinic === clinic),
+        counts: (d.pettyCounts ?? []).filter((c) => c.clinic === clinic),
+      }),
+    );
   }
 
   async listTemplates() {
@@ -585,6 +606,15 @@ export class SupabaseExtrasStore implements ExtrasStore {
 
   async reopenMonth(month: MonthKey, reason: string, _by?: string) {
     await this.closeRpc("reopen_month", { p_month: month, p_reason: reason });
+  }
+
+  async myPettyCash() {
+    return maybe(async () => {
+      const sb = await this.client();
+      const { data, error } = await sb.rpc("my_petty_cash");
+      check(error, "Staff petty cash");
+      return parseMyPettyCash(data);
+    });
   }
 
   async listTemplates() {

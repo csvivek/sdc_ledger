@@ -13,28 +13,13 @@ export const metadata: Metadata = {
 
 export const viewport: Viewport = { width: "device-width", initialScale: 1, themeColor: "#0f6e7a" };
 
-const ADMIN_NAV: [string, string][] = [
-  ["/dashboard", "Dashboard"],
-  ["/expenses", "Add expense"],
-  ["/petty-cash", "Petty cash"],
-  ["/import", "Import"],
-  ["/reconciliation", "Reconcile"],
-  ["/card-income", "Card income"],
-  ["/payees", "Payees"],
-  ["/categories", "Categories"],
-  ["/recurring", "Recurring"],
-  ["/month-close", "Month close"],
-  ["/export", "Export"],
-  ["/staff", "Staff"],
-  ["/activity", "Activity"],
-  ["/backup", "Backup"],
-];
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
   const user = await currentUser();
+  const isAdmin = user?.role === "admin" && user.active !== false;
   return (
     <html lang="en">
-      <body>
+      <body className={isAdmin ? "admin" : undefined}>
         {!isSupabaseConfigured && (
           <div className="mock-banner">Prototype · all data is fake · not connected to PappyJoe, HDFC or Supabase</div>
         )}
@@ -52,7 +37,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
             </form>
           )}
         </header>
-        {user?.role === "admin" && user.active !== false && <Nav items={ADMIN_NAV} />}
+        {isAdmin && <Nav />}
         <main>{children}</main>
       </body>
     </html>
