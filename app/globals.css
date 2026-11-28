@@ -542,6 +542,12 @@ code { word-break: break-all; }
 .rename-form input[type="text"] { flex: 1 1 180px; min-width: 0; }
 .row-actions { white-space: nowrap; }
 
+/* Delete imported data for a month */
+button.danger { background: var(--bad); border-color: var(--bad); color: #fff; }
+button.danger:hover { filter: brightness(0.92); }
+.delete-preview { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line, #e5e7eb); }
+.delete-preview ul { margin: 4px 0 10px; padding-left: 18px; }
+
 /* Card machine quote boxes on the dashboard */
 .quote-inputs { display: grid; gap: 0 12px; grid-template-columns: 1fr; margin-bottom: 8px; }
 @media (min-width: 600px) { .quote-inputs { grid-template-columns: 1fr 1fr; } }
