@@ -6,6 +6,8 @@ import { getStore } from "@/lib/data/store";
 import { inr, pettyCashMonth, todayInIndia } from "@/lib/calc";
 import { differs, findReasonByLabel, OTHER_REASON } from "@/lib/petty";
 import { CLINIC_LABEL, type ClinicId } from "@/lib/types";
+import { closedMonths } from "@/lib/closed-months";
+import { closedMessage, closedMonthFromError } from "@/lib/month-close";
 
 export type CountFormState = { ok?: string; notice?: string; error?: string; savedAt?: number };
 
@@ -38,6 +40,7 @@ export async function savePettyCount(_prev: CountFormState, formData: FormData):
   const counted = readAmount(String(formData.get("counted") ?? ""));
   if (typeof counted === "string") return { error: counted };
   const note = String(formData.get("note") ?? "").trim().slice(0, 500);
+  if ((await closedMonths()).has(month)) return { error: closedMessage(month) };
 
   try {
     const store = getStore();
@@ -82,6 +85,8 @@ export async function savePettyCount(_prev: CountFormState, formData: FormData):
       : `Count saved. It matches; next month starts with ${inr(counted)}.`;
     return { ok: [head, ...notes].join(" "), savedAt: Date.now() };
   } catch (err) {
+    const closed = closedMonthFromError(err);
+    if (closed) return { error: closedMessage(closed) };
     // Two saves racing: the database allows one count per clinic and month.
     if (/duplicate key|petty_cash_counts_clinic_month/i.test(String((err as Error)?.message ?? err)))
       return { notice: "Not saved: this month was just counted. Reload the page and edit that count." };
@@ -98,12 +103,16 @@ export async function deletePettyCount(_prev: CountFormState, formData: FormData
   try {
     const store = getStore();
     const d = await store.read();
-    if (!d.pettyCounts.some((c) => c.id === id)) return { error: "This count was already removed. Reload the page." };
+    const count = d.pettyCounts.find((c) => c.id === id);
+    if (!count) return { error: "This count was already removed. Reload the page." };
+    if ((await closedMonths()).has(count.month)) return { error: closedMessage(count.month) };
     await store.deletePettyCount(id);
     revalidatePath("/petty-cash");
     revalidatePath("/reconciliation");
     return { ok: "Count removed. The month now ends on the expected balance.", savedAt: Date.now() };
   } catch (err) {
+    const closed = closedMonthFromError(err);
+    if (closed) return { error: closedMessage(closed) };
     console.error("delete petty count failed", err);
     return { error: "Could not remove the count. Please try again." };
   }

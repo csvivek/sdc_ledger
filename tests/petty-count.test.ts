@@ -148,3 +148,22 @@ describe("deletePettyCount", () => {
     expect((await deletePettyCount({}, form({ id }))).error).toMatch(/already removed/);
   });
 });
+
+describe("petty count in a closed month", () => {
+  it("is refused with the closed-month message, for a new count, an edit and a removal", async () => {
+    const { getExtras } = await import("@/lib/data/extras");
+    const expected = await expectedFor(OCT);
+    const saved = await savePettyCount({}, count({ counted: String(expected) }));
+    expect(saved.ok).toBeTruthy();
+    const id = (await read()).pettyCounts[0].id;
+    await getExtras().closeMonth(OCT, [], "test", ADMIN.id);
+    try {
+      expect((await savePettyCount({}, count({ counted: String(expected), id }))).error).toMatch(/Oct 2026 is closed/);
+      expect((await savePettyCount({}, form({ clinic: "SDC2", month: OCT, counted: "1" }))).error).toMatch(/is closed/);
+      expect((await deletePettyCount({}, form({ id }))).error).toMatch(/is closed/);
+      expect((await read()).pettyCounts).toMatchObject([{ id, counted: expected }]);
+    } finally {
+      await getExtras().reopenMonth(OCT, "test over", ADMIN.id);
+    }
+  });
+});
