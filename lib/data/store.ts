@@ -16,6 +16,7 @@ import type {
   BankRule,
   BankTxn,
   CardPayment,
+  CategoryChange,
   CategoryInfo,
   ClinicId,
   Expense,
@@ -28,6 +29,8 @@ import type {
   MonthKey,
   Payee,
   PayeeKind,
+  PettyCount,
+  PettyCountReason,
   PjReceipt,
   ReconNote,
   ReconReason,
@@ -35,6 +38,7 @@ import type {
 import { monthRange } from "../expense-view";
 import { buildSeed } from "./seed";
 import { seedGapReasons } from "../gaps";
+import { SEED_PETTY_REASONS } from "../petty";
 import { isSupabaseConfigured } from "../supabase/config";
 import { SupabaseLedgerStore } from "./supabase-store";
 
@@ -54,6 +58,12 @@ export interface LedgerStore {
   /** Date of the oldest entry this user can see, if any. */
   firstExpenseDate(): Promise<string | undefined>;
   addExpense(e: Omit<Expense, "id" | "enteredAt">): Promise<Expense>;
+  /** Admin only. Changes an expense's category and records the change (nothing when it is the same). Returns the old category, or undefined if not found. */
+  setExpenseCategory(id: string, category: string, changedBy: string): Promise<string | undefined>;
+  /** Admin only. Records a change made elsewhere (bank payments). */
+  logCategoryChange(c: Omit<CategoryChange, "id" | "changedAt">): Promise<void>;
+  /** Admin only. Changes for these items, newest first. */
+  categoryChanges(target: CategoryChange["target"], ids: string[]): Promise<CategoryChange[]>;
   /** Adds a payee name, or returns the existing one with the same kind and name (any case). */
   addPayee(kind: PayeeKind, name: string, createdBy: string): Promise<Payee>;
   setPayeeActive(id: string, active: boolean): Promise<void>;
@@ -102,6 +112,13 @@ export interface LedgerStore {
   /** Remembers an answer for every later gap with the same signature. The caller checks for duplicates first. */
   addGapRule(r: Omit<GapRule, "id">, createdBy: string): Promise<GapRule>;
   deleteGapRule(id: string): Promise<void>;
+
+  // Month-end petty cash counts (admin only).
+  /** Saves the count for its clinic and month, replacing the one already there. */
+  savePettyCount(count: Omit<PettyCount, "id" | "countedAt">): Promise<PettyCount>;
+  deletePettyCount(id: string): Promise<void>;
+  /** Adds a reason at the end of the list. The caller checks for duplicates first. */
+  addPettyCountReason(label: string, createdBy: string): Promise<PettyCountReason>;
 }
 
 export interface ImportMeta {
@@ -162,6 +179,8 @@ class JsonFileStore implements LedgerStore {
       d.gapReasons ??= seedGapReasons();
       d.gapAnswers ??= [];
       d.gapRules ??= [];
+      d.pettyCounts ??= [];
+      d.pettyCountReasons ??= SEED_PETTY_REASONS;
       return d;
     } catch {
       const seed: StoredData = { ...buildSeed(), imports: [] };
@@ -445,6 +464,32 @@ class JsonFileStore implements LedgerStore {
     }
   }
 
+  async setExpenseCategory(id: string, category: string, changedBy: string) {
+    const d = await this.load();
+    const e = d.expenses.find((x) => x.id === id);
+    if (!e) return undefined;
+    const old = e.category;
+    if (old === category) return old;
+    e.category = category;
+    d.categoryChanges = [...(d.categoryChanges ?? []), change({ target: "expense", targetId: id, oldValue: old, newValue: category, changedBy })];
+    await this.save(d);
+    return old;
+  }
+
+  async logCategoryChange(c: Omit<CategoryChange, "id" | "changedAt">) {
+    const d = await this.load();
+    d.categoryChanges = [...(d.categoryChanges ?? []), change(c)];
+    await this.save(d);
+  }
+
+  async categoryChanges(target: CategoryChange["target"], ids: string[]) {
+    const d = await this.load();
+    const want = new Set(ids);
+    return (d.categoryChanges ?? [])
+      .filter((c) => c.target === target && want.has(c.targetId))
+      .sort((a, b) => b.changedAt.localeCompare(a.changedAt));
+  }
+
   async addBankRule(rule: Omit<BankRule, "id">) {
     const d = await this.load();
     const row: BankRule = { ...rule, id: `rule_${Date.now()}` };
@@ -503,12 +548,52 @@ class JsonFileStore implements LedgerStore {
     d.gapRules = d.gapRules.filter((r) => r.id !== id);
     await this.save(d);
   }
+
+  async savePettyCount(count: Omit<PettyCount, "id" | "countedAt">) {
+    const d = await this.load();
+    const old = d.pettyCounts.find((c) => c.clinic === count.clinic && c.month === count.month);
+    const row: PettyCount = { ...count, id: old?.id ?? `pcount_${Date.now()}`, countedAt: new Date().toISOString() };
+    d.pettyCounts = [...d.pettyCounts.filter((c) => c !== old), row];
+    await this.save(d);
+    return row;
+  }
+
+  async deletePettyCount(id: string) {
+    const d = await this.load();
+    d.pettyCounts = d.pettyCounts.filter((c) => c.id !== id);
+    await this.save(d);
+  }
+
+  async addPettyCountReason(label: string) {
+    const d = await this.load();
+    const row: PettyCountReason = {
+      id: `pcr_${Date.now()}`,
+      label: label.trim().replace(/\s+/g, " "),
+      active: true,
+      sortOrder: Math.max(0, ...d.pettyCountReasons.map((r) => r.sortOrder)) + 1,
+    };
+    d.pettyCountReasons.push(row);
+    await this.save(d);
+    return row;
+  }
 }
 
 /** The JSON file also keeps the import history and hidden categories, which are not part of LedgerData. */
-type StoredData = LedgerData & { imports: ImportBatch[]; hiddenCategories?: string[]; importDeletions?: ImportDeletion[] };
+type StoredData = LedgerData & {
+  imports: ImportBatch[];
+  hiddenCategories?: string[];
+  importDeletions?: ImportDeletion[];
+  categoryChanges?: CategoryChange[];
+};
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
+
+let changeSeq = 0;
+const change = (c: Omit<CategoryChange, "id" | "changedAt">): CategoryChange => ({
+  ...c,
+  id: `chg_${Date.now()}_${changeSeq++}`,
+  changedAt: new Date().toISOString(),
+});
 
 let store: LedgerStore | undefined;
 export function getStore(): LedgerStore {

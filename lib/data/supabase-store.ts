@@ -6,6 +6,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { monthRange } from "../expense-view";
 import { createClient } from "../supabase/server";
 import type {
+  CategoryChange,
   BankDeposit,
   BankRule,
   BankTxn,
@@ -26,6 +27,8 @@ import type {
   Payee,
   PayeeKind,
   PettyCashTransfer,
+  PettyCount,
+  PettyCountReason,
   ReconReason,
   User,
 } from "../types";
@@ -165,12 +168,31 @@ export const toUser = (r: Row): User => ({
   active: r.active ?? true,
 });
 
+const toPettyCount = (r: Row): PettyCount => ({
+  id: r.id,
+  clinic: r.clinic,
+  month: r.month,
+  counted: Number(r.counted),
+  reasonId: r.reason_id ?? undefined,
+  note: r.note ?? "",
+  countedBy: r.counted_by ?? "",
+  countedAt: r.counted_at,
+});
+
+const toPettyCountReason = (r: Row): PettyCountReason => ({
+  id: r.id,
+  code: r.code ?? undefined,
+  label: r.label,
+  active: r.active,
+  sortOrder: r.sort_order,
+});
+
 export class SupabaseLedgerStore implements LedgerStore {
   constructor(private client: () => Promise<SupabaseClient> = createClient) {}
 
   async read(): Promise<LedgerData> {
     const sb = await this.client();
-    const [profiles, clinics, categories, payees, expenses, transfers, pj, deposits, reasons, cards, txns, rules, receipts, notes, gapReasons, gapAnswers, gapRules] = await Promise.all([
+    const [profiles, clinics, categories, payees, expenses, transfers, pj, deposits, reasons, cards, txns, rules, receipts, notes, gapReasons, gapAnswers, gapRules, counts, countReasons] = await Promise.all([
       sb.from("profiles").select("*"),
       sb.from("clinics").select("*"),
       sb.from("categories").select("*").eq("active", true).order("sort_order"),
@@ -188,6 +210,8 @@ export class SupabaseLedgerStore implements LedgerStore {
       sb.from("gap_reasons").select("*").order("sort_order").order("created_at"),
       selectAll(sb, "gap_answers", "answered_at"),
       sb.from("gap_rules").select("*"),
+      sb.from("petty_cash_counts").select("*"),
+      sb.from("petty_count_reasons").select("*").order("sort_order"),
     ]);
 
     const cats = rows(categories, (r) => r);
@@ -249,6 +273,8 @@ export class SupabaseLedgerStore implements LedgerStore {
       gapReasons: rows(gapReasons, toGapReason),
       gapAnswers: rows(gapAnswers, toGapAnswer),
       gapRules: rows(gapRules, toGapRule),
+      pettyCounts: rows(counts, toPettyCount),
+      pettyCountReasons: rows(countReasons, toPettyCountReason),
     };
   }
 
@@ -612,6 +638,54 @@ export class SupabaseLedgerStore implements LedgerStore {
     }));
   }
 
+  async setExpenseCategory(id: string, category: string, changedBy: string) {
+    const sb = await this.client();
+    const { data: before, error: readErr } = await sb.from("expenses").select("category").eq("id", id).maybeSingle();
+    if (readErr) throw new Error(readErr.message);
+    if (!before) return undefined;
+    const old = before.category as string;
+    if (old === category) return old;
+    const { error } = await sb.from("expenses").update({ category }).eq("id", id);
+    if (error) throw new Error(error.message);
+    const { error: logErr } = await sb
+      .from("category_changes")
+      .insert({ target: "expense", target_id: id, old_value: old, new_value: category, changed_by: changedBy });
+    if (logErr) {
+      // No change without its history: put the old category back.
+      await sb.from("expenses").update({ category: old }).eq("id", id);
+      throw new Error(logErr.message);
+    }
+    return old;
+  }
+
+  async logCategoryChange(c: Omit<CategoryChange, "id" | "changedAt">) {
+    const sb = await this.client();
+    const { error } = await sb
+      .from("category_changes")
+      .insert({ target: c.target, target_id: c.targetId, old_value: c.oldValue, new_value: c.newValue, changed_by: c.changedBy });
+    if (error) throw new Error(error.message);
+  }
+
+  async categoryChanges(target: CategoryChange["target"], ids: string[]): Promise<CategoryChange[]> {
+    if (ids.length === 0) return [];
+    const sb = await this.client();
+    // A few ids per request keeps the query string short.
+    const out: Row[] = [];
+    for (let i = 0; i < ids.length; i += 100) {
+      const res = await sb.from("category_changes").select("*").eq("target", target).in("target_id", ids.slice(i, i + 100));
+      out.push(...rows(res, (r) => r));
+    }
+    return out.sort((a, b) => String(b.changed_at).localeCompare(String(a.changed_at))).map((r) => ({
+      id: r.id,
+      target: r.target,
+      targetId: r.target_id,
+      oldValue: r.old_value,
+      newValue: r.new_value,
+      changedBy: r.changed_by,
+      changedAt: r.changed_at,
+    }));
+  }
+
   async updateBankTxn(id: string, patch: Pick<BankTxn, "kind" | "category" | "clinic" | "ruleId">) {
     const sb = await this.client();
     const { error } = await sb
@@ -717,5 +791,46 @@ export class SupabaseLedgerStore implements LedgerStore {
     const sb = await this.client();
     const { error } = await sb.from("gap_rules").delete().eq("id", id);
     if (error) throw new Error(error.message);
+  }
+
+  async savePettyCount(count: Omit<PettyCount, "id" | "countedAt">) {
+    const sb = await this.client();
+    const { data, error } = await sb
+      .from("petty_cash_counts")
+      .upsert(
+        {
+          clinic: count.clinic,
+          month: count.month,
+          counted: count.counted,
+          reason_id: count.reasonId ?? null,
+          note: count.note,
+          counted_by: count.countedBy,
+          counted_at: new Date().toISOString(),
+        },
+        { onConflict: "clinic,month" },
+      )
+      .select()
+      .single();
+    if (error) throw new Error(error.message);
+    return toPettyCount(data);
+  }
+
+  async deletePettyCount(id: string) {
+    const sb = await this.client();
+    const { error } = await sb.from("petty_cash_counts").delete().eq("id", id);
+    if (error) throw new Error(error.message);
+  }
+
+  async addPettyCountReason(label: string) {
+    const sb = await this.client();
+    const { data: last } = await sb.from("petty_count_reasons").select("sort_order").order("sort_order", { ascending: false }).limit(1);
+    const sortOrder = Number(last?.[0]?.sort_order ?? 0) + 1;
+    const { data, error } = await sb
+      .from("petty_count_reasons")
+      .insert({ label: label.trim().replace(/\s+/g, " "), sort_order: sortOrder })
+      .select()
+      .single();
+    if (error) throw new Error(error.message);
+    return toPettyCountReason(data);
   }
 }

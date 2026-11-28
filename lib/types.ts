@@ -54,6 +54,18 @@ export interface Expense {
   recurringMonth?: MonthKey;
 }
 
+/** One change of category on an expense typed into the app, or on a bank payment. */
+export interface CategoryChange {
+  id: string;
+  target: "expense" | "bank";
+  targetId: string;
+  /** What it was called at the time, e.g. "Rent" or "Petty cash to clinics". */
+  oldValue: string;
+  newValue: string;
+  changedBy: string; // user id
+  changedAt: string; // ISO timestamp
+}
+
 /** Cash withdrawn from the shared bank account into a clinic's petty cash. A transfer, not an expense. */
 export interface PettyCashTransfer {
   id: string;
@@ -280,6 +292,10 @@ export interface LedgerData {
   gapReasons: GapReason[];
   gapAnswers: GapAnswer[];
   gapRules: GapRule[];
+  /** Month-end counts of the cash in each clinic's petty cash box. */
+  pettyCounts: PettyCount[];
+  /** Answers offered when a count differs from what the app expected. */
+  pettyCountReasons: PettyCountReason[];
 }
 
 export const CLINIC_LABEL: Record<ClinicOrShared, string> = {
@@ -310,3 +326,30 @@ export const IN_PAPPYJOE_LABEL: Record<InPappyJoe, string> = {
 };
 
 export const CLINICS: ClinicId[] = ["SDC1", "SDC2"];
+
+/**
+ * The cash someone counted in a clinic's petty cash box at the end of a month.
+ * The counted amount is what the next month starts with. The difference from
+ * what the app expected is worked out live (lib/calc.ts pettyCashMonth), so
+ * an expense entered later for that month shrinks it.
+ */
+export interface PettyCount {
+  id: string;
+  clinic: ClinicId;
+  month: MonthKey;
+  counted: number;
+  /** Why the count differs from what the app expected; empty when it matched. */
+  reasonId?: string;
+  note: string;
+  countedBy: string; // user id
+  countedAt: string; // ISO timestamp of the last save
+}
+
+export interface PettyCountReason {
+  id: string;
+  /** Built-in reasons have a code; ones the admin typed do not. */
+  code?: string;
+  label: string;
+  active: boolean;
+  sortOrder: number;
+}

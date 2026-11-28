@@ -117,8 +117,8 @@ describe("month close checklist", () => {
 describe("closing and reopening", () => {
   it("closes with a reason, blocks entries for that month only, and reopens with a reason", async () => {
     const r1 = await closeMonthAction({}, form({ month: "2026-10" }));
-    // Bank statement missing, and the seed's gaps have no reason yet.
-    expect(r1.error).toMatch(/2 item\(s\) are not done/);
+    // Bank statement missing, the seed's gaps have no reason yet, and petty cash is not counted (PR #15, #16).
+    expect(r1.error).toMatch(/3 item\(s\) are not done/);
     const r2 = await closeMonthAction({}, form({ month: "2026-10", force: "1", note: "Statement comes later" }));
     expect(r2.ok).toMatch(/is closed/);
     expect(await getExtras().closedMonths()).toEqual(new Set(["2026-10"]));

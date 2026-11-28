@@ -252,3 +252,25 @@ export async function resetDemoData() {
   await getStore().reset();
   revalidatePath("/", "layout");
 }
+
+export type ExpenseCategoryState = { ok?: string; error?: string };
+
+/** Admin only: moves one typed-in expense to another category, and records who changed it and when. */
+export async function changeExpenseCategory(_prev: ExpenseCategoryState, formData: FormData): Promise<ExpenseCategoryState> {
+  const user = await requireAdmin();
+  const id = String(formData.get("id") ?? "");
+  const category = String(formData.get("category") ?? "");
+  try {
+    const store = getStore();
+    const { categories } = await store.formOptions();
+    if (!categories.includes(category)) return { error: "Pick a category from the list." };
+    const old = await store.setExpenseCategory(id, category, user.id);
+    if (old === undefined) return { error: "This expense was not found. Reload the page and try again." };
+    if (old === category) return { ok: `It is already ${category}.` };
+    revalidatePath("/", "layout");
+    return { ok: `Changed from ${old} to ${category}.` };
+  } catch (err) {
+    console.error("changeExpenseCategory failed", id, err);
+    return { error: "Could not save. Check your connection and press Save again." };
+  }
+}

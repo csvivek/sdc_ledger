@@ -343,6 +343,7 @@ export async function categoriseDebit(_prev: DebitFormState, formData: FormData)
       before: { narration: txn.narration, date: txn.date, kind: txn.kind, category: txn.category ?? null },
       after: { kind: action, category: category ?? null },
     });
+    await logBankChange(txn, action, category, user.id);
     if (ruleId) await reapply(d.bankTxns.filter((t) => t.id !== id), d.bankRules);
   } catch (err) {
     console.error("categoriseDebit failed", id, err);
@@ -355,6 +356,23 @@ export async function categoriseDebit(_prev: DebitFormState, formData: FormData)
 function describeRule(r: BankRule) {
   const what = r.action === "EXPENSE" ? (r.category ?? "Expense") : BANK_KIND_LABEL[r.action];
   return r.clinic && r.clinic !== "SHARED" ? `${what}, ${CLINIC_LABEL[r.clinic]}` : what;
+}
+
+/** What a bank payment counts as, in words: its category for an expense, else its kind. */
+function bankLabel(kind: BankTxn["kind"], category: string | undefined) {
+  return kind === "EXPENSE" ? (category ?? "Expense") : BANK_KIND_LABEL[kind];
+}
+
+/**
+ * Records a change to a bank payment that was already decided. A first answer
+ * to a payment that was waiting ("Needs a category") is not a change.
+ */
+async function logBankChange(before: BankTxn, kind: BankTxn["kind"], category: string | undefined, userId: string) {
+  if (before.kind === "UNKNOWN_OUT") return;
+  const oldValue = bankLabel(before.kind, before.category);
+  const newValue = bankLabel(kind, category);
+  if (oldValue === newValue) return;
+  await getStore().logCategoryChange({ target: "bank", targetId: before.id, oldValue, newValue, changedBy: userId });
 }
 
 function isDuplicateRuleError(err: unknown) {
@@ -455,6 +473,7 @@ export async function saveRule(_prev: RuleFormState, formData: FormData): Promis
           if (t.ruleId !== id || !(t.withdrawal > 0) || closed.has(monthOf(t.date))) continue;
           const c = classify(t, rules);
           await store.updateBankTxn(t.id, { kind: c.kind, category: c.category, clinic: c.clinic, ruleId: c.ruleId });
+          await logBankChange(t, c.kind, c.category, user.id);
           relinked++;
         }
       }
