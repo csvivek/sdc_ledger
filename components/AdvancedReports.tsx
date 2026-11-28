@@ -36,7 +36,7 @@ export function AdvancedReports({
   scope: ReportScope;
   open: boolean;
 }) {
-  const href = (p: ReportPeriod, s: ReportScope) => `/dashboard?month=${month}&rp=${p}&rc=${s}#advanced`;
+  const href = (p: ReportPeriod, s: ReportScope) => `/reports?month=${month}&rp=${p}&rc=${s}#advanced`;
   const spanText =
     period === "month" ? monthLabel(month) : period === "12m" ? `${monthLabel(addMonths(month, -11))} to ${monthLabel(month)}` : "every month on record";
 

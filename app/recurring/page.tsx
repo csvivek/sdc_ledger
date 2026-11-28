@@ -7,7 +7,8 @@ import { isMonthKey, monthRange, shiftMonth } from "@/lib/expense-view";
 import { matches } from "@/lib/recon";
 import { closedMonths } from "@/lib/closed-months";
 import { describeTemplate, monthItems, toAddAll } from "@/lib/recurring";
-import { AddAllForm, AddOneForm, TemplateForm } from "@/components/RecurringForms";
+import { TemplateForm } from "@/components/RecurringForms";
+import { RecurringMonth } from "@/components/RecurringMonth";
 import { toggleTemplateAction } from "./actions";
 
 export const dynamic = "force-dynamic";
@@ -41,7 +42,6 @@ export default async function RecurringPage({ searchParams }: { searchParams: Pr
   const prev = shiftMonth(month, -1);
   const next = shiftMonth(month, 1);
   const formProps = { categories: d.categories, categoryPayeeKind: d.categoryPayeeKind, invoiceCategories: d.invoiceCategories, payees: d.payees };
-  const done = items.filter((i) => i.added).length;
 
   return (
     <>
@@ -65,49 +65,18 @@ export default async function RecurringPage({ searchParams }: { searchParams: Pr
         )}
       </div>
 
-      {!templates.some((t) => t.active) ? (
-        <p className="notice">The list is empty. Add your monthly expenses below, once, and they show up here every month.</p>
-      ) : (
-        <>
-          <p className="muted">
-            {done} of {items.length} added for {label}.
-          </p>
-          {isClosed && <p className="notice">{label} is closed, so nothing can be added. Reopen it on the Month close page first.</p>}
-          <ul className="recurring-list">
-            {items.map(({ template: t, date, added, lookalike }) => (
-              <li key={t.id}>
-                <div className="top-line">
-                  <strong>{t.label}</strong>
-                  {added ? (
-                    <span className="badge done">Added</span>
-                  ) : lookalike ? (
-                    <span className="badge open">Check</span>
-                  ) : null}
-                </div>
-                <div className="muted small-text">{describeTemplate(t, d.payees)}</div>
-                {added ? (
-                  <p className="muted small-text">
-                    {inr(added.amount)} on {added.date}
-                    {added.amount !== t.amount ? ` (usual ${inr(t.amount)})` : ""} ·{" "}
-                    {added.paidBy === "PETTY_CASH" ? "petty cash" : bankMatched.has(added.id) ? "matched to the bank payment ✓" : "bank payment not matched yet"}
-                  </p>
-                ) : (
-                  <>
-                    {lookalike && (
-                      <p className="muted small-text">
-                        A matching entry was already typed by hand: {inr(lookalike.amount)} on {lookalike.date}. Add all skips this one; add it
-                        only if it is a second payment.
-                      </p>
-                    )}
-                    {!isClosed && t.active && <AddOneForm month={month} id={t.id} label={t.label} amount={t.amount} date={date} min={from} max={to} />}
-                  </>
-                )}
-              </li>
-            ))}
-          </ul>
-          {!isClosed && <AddAllForm month={month} count={todo.length} total={inr(todo.reduce((s, i) => s + i.template.amount, 0))} label={label} />}
-        </>
-      )}
+      <RecurringMonth
+        templates={templates}
+        items={items}
+        todo={todo}
+        month={month}
+        label={label}
+        isClosed={isClosed}
+        from={from}
+        to={to}
+        bankMatched={bankMatched}
+        payees={d.payees}
+      />
 
       <h2>The list</h2>
       <details className="card">

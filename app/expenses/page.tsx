@@ -15,6 +15,13 @@ import { CLINIC_LABEL, IN_PAPPYJOE_LABEL, PAID_BY_LABEL } from "@/lib/types";
 import { EntriesMonthNav } from "@/components/EntriesMonthNav";
 import { ExpenseCategoryForm } from "@/components/ExpenseCategoryForm";
 import { ExpenseForm } from "@/components/ExpenseForm";
+import { RecurringMonth } from "@/components/RecurringMonth";
+import { getExtras } from "@/lib/data/extras";
+import { closedMonths } from "@/lib/closed-months";
+import { matches } from "@/lib/recon";
+import { monthItems, toAddAll } from "@/lib/recurring";
+import { monthRange } from "@/lib/expense-view";
+import { staffPettyMonth } from "@/lib/staff-petty";
 
 export const dynamic = "force-dynamic";
 
@@ -52,8 +59,23 @@ export default async function ExpensesPage({ searchParams }: { searchParams: Pro
   const lastChange = new Map<string, (typeof changes)[number]>();
   for (const c of changes) if (!lastChange.has(c.targetId)) lastChange.set(c.targetId, c);
 
+  const thisMonth = todayInIndia().slice(0, 7);
+  const recurring = isAdmin ? await recurringBox(thisMonth) : undefined;
+  const petty = isAdmin ? undefined : await myPetty(user.id, thisMonth);
+
   return (
     <>
+      {petty && (
+        <div className="petty-card" aria-label="Petty cash">
+          <div className="label">{CLINIC_LABEL[petty.clinic]} petty cash · left now</div>
+          <div className="value">{inr(petty.left)}</div>
+          <div className="split">
+            <span>Carried in {inr(petty.carriedIn)}</span>
+            <span>Received {inr(petty.received)}</span>
+            <span>Spent {inr(petty.spent)}</span>
+          </div>
+        </div>
+      )}
       <h1>Add expense</h1>
       <div className="card form-card">
         <ExpenseForm
@@ -65,6 +87,8 @@ export default async function ExpensesPage({ searchParams }: { searchParams: Pro
           today={today}
         />
       </div>
+
+      {recurring}
 
       <h2 id="entries">
         {isAdmin ? "" : "Your "}
@@ -155,4 +179,49 @@ export default async function ExpensesPage({ searchParams }: { searchParams: Pro
       </div>
     </>
   );
+}
+
+/** Admin: this month's recurring expenses, folded open while some are still to add. */
+async function recurringBox(month: string) {
+  const [list, d, closed] = await Promise.all([getExtras().listTemplates(), getStore().read(), closedMonths()]);
+  if (!list.ready || !list.value.some((t) => t.active)) return undefined;
+  const items = monthItems(list.value, month, d.expenses);
+  const todo = toAddAll(items);
+  const { from, to } = monthRange(month);
+  const done = items.filter((i) => i.added).length;
+  return (
+    <details className="card" id="recurring" open={todo.length > 0}>
+      <summary>
+        Recurring for {monthLabel(month)} · {done} of {items.length} added
+      </summary>
+      <RecurringMonth
+        templates={list.value}
+        items={items}
+        todo={todo}
+        month={month}
+        label={monthLabel(month)}
+        isClosed={closed.has(month)}
+        from={from}
+        to={to}
+        bankMatched={matches(d).expenseMatched}
+        payees={d.payees}
+      />
+      <p className="muted small-text">
+        Change the list in <Link href="/recurring">Settings › Recurring expenses</Link>.
+      </p>
+    </details>
+  );
+}
+
+/** Staff: their own clinic's petty cash, or nothing if it cannot be worked out (e.g. its SQL is not run yet). */
+async function myPetty(userId: string, month: string) {
+  try {
+    const r = await getExtras().myPettyCash(userId);
+    if (!r.ready || !r.value) return undefined;
+    const p = staffPettyMonth(r.value, month);
+    return { clinic: r.value.clinic, left: p.expected, carriedIn: p.carriedIn, received: p.received, spent: p.spent };
+  } catch (err) {
+    console.error("my_petty_cash failed", err);
+    return undefined;
+  }
 }

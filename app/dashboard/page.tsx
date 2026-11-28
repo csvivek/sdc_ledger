@@ -1,20 +1,19 @@
+import Link from "next/link";
 import { requireAdmin } from "@/lib/auth";
 import { getStore } from "@/lib/data/store";
-import { cardDaysOverdue, expensesByCategory, inr, monthLabel, monthsIn, monthsWithData, pnl, SHARED_SPLIT, todayInIndia } from "@/lib/calc";
-import { CHART_THRESHOLD_MONTHS, previewTrendRows, shouldShowCharts, trendRows, type TrendRow } from "@/lib/trend";
-import { TrendChart } from "@/components/TrendChart";
-import { ChartsTableToggle } from "@/components/ChartsTableToggle";
-import { AnalyticsSection } from "@/components/AnalyticsSection";
-import { AdvancedReports } from "@/components/AdvancedReports";
-import { parsePeriod, parseScope } from "@/lib/payee-report";
+import { cardDaysOverdue, inr, monthLabel, monthsIn, monthsWithData, pnl, SHARED_SPLIT, todayInIndia } from "@/lib/calc";
+import { shouldShowCharts } from "@/lib/trend";
 import { CLINIC_LABEL } from "@/lib/types";
 import { MonthPicker, pickMonth } from "@/components/MonthPicker";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
 import { resetDemoData } from "../actions";
 import { getExtras } from "@/lib/data/extras";
 import { backupAgeText, backupStatus } from "@/lib/backup";
-import { forecast, fromHistory, LOOKBACK_MONTHS } from "@/lib/forecast";
+import { forecast } from "@/lib/forecast";
 import { ForecastSection } from "@/components/ForecastSection";
+import { closableMonths } from "@/lib/month-close";
+import { booksSteps } from "@/lib/books";
+import { monthItems, toAddAll } from "@/lib/recurring";
 
 export const dynamic = "force-dynamic";
 
@@ -24,44 +23,87 @@ const SCOPES = [
   ["ALL", "Combined"],
 ] as const;
 
-export default async function DashboardPage({ searchParams }: { searchParams: Promise<{ month?: string; preview?: string; rp?: string; rc?: string }> }) {
+type Todo = { text: string; where: string; href: string; bad?: boolean };
+
+export default async function HomePage({ searchParams }: { searchParams: Promise<{ month?: string }> }) {
   await requireAdmin();
-  const [d, backups] = await Promise.all([getStore().read(), getExtras().listBackups(1)]);
-  const backup = backups.ready ? backupStatus(backups.value[0]?.takenAt) : undefined;
+  const x = getExtras();
+  const [d, backups, gaps, counts, closes, templates] = await Promise.all([
+    getStore().read(),
+    x.listBackups(1),
+    x.gapAnswers(),
+    x.pettyCounts(),
+    x.listCloses(),
+    x.listTemplates(),
+  ]);
   const months = monthsIn(d);
-  const params = await searchParams;
-  const month = pickMonth(months, params.month);
-  const monthsOfData = monthsWithData(d).length;
-  // ?preview=charts shows the charts with invented sample numbers, so they can be checked before 7 real months exist.
-  const preview = params.preview === "charts";
-  const chartsOn = preview || shouldShowCharts(monthsOfData);
-  const rows = preview ? previewTrendRows(months[months.length - 1]) : trendRows(d, months);
-  const cats = expensesByCategory(d, month);
-  const maxCat = Math.max(1, ...cats.map(([, v]) => v));
-  const pendingCards = d.cardPayments.filter((c) => !c.creditedOn);
-  const pendingCard = pendingCards.reduce((s, c) => s + c.amount, 0);
+  const month = pickMonth(months, (await searchParams).month);
   const today = todayInIndia();
-  const overdueCard = pendingCards.filter((c) => cardDaysOverdue(c.date, today) > 0).reduce((s, c) => s + c.amount, 0);
   const thisMonth = today.slice(0, 7);
+
+  // What needs the admin, each with a link to where it is fixed.
+  const todo: Todo[] = [];
+  const unknown = d.bankTxns.filter((t) => t.kind === "UNKNOWN_OUT").length;
+  if (unknown) todo.push({ text: `${unknown} bank payment${unknown === 1 ? "" : "s"} need a category`, where: "Books › Reconcile", href: "/reconciliation", bad: true });
+
+  // The last month that is over: its books, step by step.
+  const closable = closableMonths(months, thisMonth);
+  const booksMonth = closable[closable.length - 1];
+  const closedSet = new Set(closes.ready ? closes.value.filter((c) => c.closed).map((c) => c.month) : []);
+  if (booksMonth && !closedSet.has(booksMonth)) {
+    const steps = booksSteps(
+      d,
+      booksMonth,
+      { gapAnswers: gaps.ready ? gaps.value : undefined, pettyCounts: counts.ready ? counts.value : undefined },
+      false,
+    );
+    const label = monthLabel(booksMonth);
+    for (const s of steps) {
+      for (const item of s.open) {
+        // Bank categories and card money are listed once for all months.
+        if (item.key === "categorised" || item.key === "cards") continue;
+        todo.push({ text: item.detail, where: `${label} · Books › ${s.label}`, href: `${s.href}?month=${booksMonth}` });
+      }
+    }
+    if (closes.ready) todo.push({ text: `Close ${label}`, where: "Books › Close", href: `/month-close?month=${booksMonth}` });
+  }
+
+  const pendingCards = d.cardPayments.filter((c) => !c.creditedOn);
+  const overdueCard = pendingCards.filter((c) => cardDaysOverdue(c.date, today) > 0).reduce((s, c) => s + c.amount, 0);
+  if (overdueCard > 0) todo.push({ text: `${inr(overdueCard)} of card income is overdue`, where: "Still with the doctor · Books › Card income", href: "/card-income", bad: true });
+
+  if (templates.ready) {
+    const left = toAddAll(monthItems(templates.value, thisMonth, d.expenses)).length;
+    if (left) todo.push({ text: `${left} recurring expense${left === 1 ? "" : "s"} not added for ${monthLabel(thisMonth)}`, where: "Add expense", href: "/expenses#recurring" });
+  }
+
+  const backup = backups.ready ? backupStatus(backups.value[0]?.takenAt) : undefined;
+  if (backup?.due) todo.push({ text: backupAgeText(backup), where: "Settings › Backup", href: "/backup" });
+
+  const monthsOfData = monthsWithData(d).length;
   const fc = forecast(d, "ALL", thisMonth);
-  const sampleHistory = rows.filter((r) => r.month < thisMonth).slice(-LOOKBACK_MONTHS);
-  const fcShown = preview
-    ? fromHistory("ALL", sampleHistory.map((r) => r.month), sampleHistory.map((r) => r.income), sampleHistory.map((r) => r.expenses), thisMonth)
-    : fc;
-  const fcHistory = preview
-    ? sampleHistory.map((r) => ({ month: r.month, profit: r.profit.ALL }))
-    : fc.basedOn.map((m) => ({ month: m, profit: pnl(d, m, "ALL").profit }));
 
   return (
     <>
-      <h1>Dashboard</h1>
-      {backup?.due && (
-        <p className="notice">
-          {backupAgeText(backup)}. <a href="/backup">Download a backup</a>
-        </p>
-      )}
-      <MonthPicker months={months} active={month} basePath="/dashboard" />
+      <h1>Home</h1>
 
+      <h2>Needs you ({todo.length})</h2>
+      <div className="card todo-list">
+        {todo.length === 0 && <div className="all-done">✓ Nothing needs you right now.</div>}
+        {todo.map((t) => (
+          <Link key={t.href + t.text} href={t.href}>
+            <span className={`sev ${t.bad ? "bad" : ""}`} aria-hidden="true" />
+            <span className="t">
+              <b>{t.text}</b>
+              <span>{t.where}</span>
+            </span>
+            <span className="go" aria-hidden="true">›</span>
+          </Link>
+        ))}
+      </div>
+
+      <h2>Profit, {monthLabel(month)}</h2>
+      <MonthPicker months={months} active={month} basePath="/dashboard" />
       <div className="grid">
         {SCOPES.map(([k, label]) => {
           const p = pnl(d, month, k);
@@ -76,63 +118,20 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
           );
         })}
       </div>
-      {pendingCard > 0 && (
-        <p className="mock-note">
-          {inr(pendingCard)} of card income is still with the doctor
-          {overdueCard > 0 ? `, and ${inr(overdueCard)} of it is overdue from earlier months` : ""}. <a href="/card-income">See card income</a>
-        </p>
-      )}
       <p className="muted">
-        Income is PappyJoe cash + UPI + card. Expenses are portal entries plus categorised bank payments nobody entered in the portal; petty cash withdrawals are transfers, not expenses, and bank payments still waiting for an answer on Import are left out. Shared expenses are split{" "}
-        {SHARED_SPLIT.SDC1 * 100}/{SHARED_SPLIT.SDC2 * 100} between clinics (mock rule, to confirm).
+        Income is PappyJoe cash + UPI + card. Expenses are portal entries plus categorised bank payments nobody entered in the portal; petty cash withdrawals are transfers, not expenses, and bank payments still waiting for an answer are left out. Shared expenses are split{" "}
+        {SHARED_SPLIT.SDC1 * 100}/{SHARED_SPLIT.SDC2 * 100} between clinics (mock rule, to confirm). Trends and analysis are in{" "}
+        <Link href="/reports">Reports</Link>.
       </p>
 
-      <h2>Monthly trend</h2>
-      {preview && (
-        <p className="mock-note">
-          <strong>SAMPLE DATA, not real.</strong> The charts and table in this Monthly trend section use invented numbers so you can
-          see how they will look. The cards above are real. Real charts appear automatically once there are more than{" "}
-          {CHART_THRESHOLD_MONTHS} months of data (there {monthsOfData === 1 ? "is" : "are"} {monthsOfData} now).{" "}
-          <a href="/dashboard">Back to real numbers</a>
-        </p>
-      )}
-      {chartsOn ? (
-        <ChartsTableToggle charts={<TrendCharts rows={rows} sample={preview} monthsOfData={monthsOfData} />} table={<TrendTables rows={rows} />} />
-      ) : (
-        <>
-          <p className="muted">
-            <strong>Real numbers.</strong> Charts of real data appear automatically once there are more than {CHART_THRESHOLD_MONTHS}{" "}
-            months of data. There {monthsOfData === 1 ? "is" : "are"} {monthsOfData} month{monthsOfData === 1 ? "" : "s"} now, so they
-            start after {CHART_THRESHOLD_MONTHS + 1 - monthsOfData} more month{CHART_THRESHOLD_MONTHS + 1 - monthsOfData === 1 ? "" : "s"} of data.{" "}
-            <a href="/dashboard?preview=charts">Preview the charts with sample data</a>
-          </p>
-          <TrendTable rows={rows} />
-        </>
-      )}
-
       <ForecastSection
-        combined={fcShown}
-        clinics={preview ? undefined : { SDC1: forecast(d, "SDC1", thisMonth), SDC2: forecast(d, "SDC2", thisMonth) }}
-        history={fcHistory}
-        chartsOn={chartsOn}
-        sample={preview}
+        combined={fc}
+        clinics={{ SDC1: forecast(d, "SDC1", thisMonth), SDC2: forecast(d, "SDC2", thisMonth) }}
+        history={fc.basedOn.map((m) => ({ month: m, profit: pnl(d, m, "ALL").profit }))}
+        chartsOn={shouldShowCharts(monthsOfData)}
+        sample={false}
         currentMonth={thisMonth}
       />
-
-      <AnalyticsSection receipts={d.pjReceipts} preview={preview} latestMonth={months[months.length - 1]} />
-
-      <h2>Expenses by category, {monthLabel(month)} (both clinics)</h2>
-      <div className="card">
-        {cats.map(([c, v]) => (
-          <div key={c} className="bar-row">
-            <span className="bar-label">{c}</span>
-            <div className="bar-track"><div className="bar" style={{ width: `${(v / maxCat) * 100}%` }} /></div>
-            <span className="bar-value">{inr(v)}</span>
-          </div>
-        ))}
-      </div>
-
-      <AdvancedReports d={d} month={month} period={parsePeriod(params.rp)} scope={parseScope(params.rc)} open={Boolean(params.rp || params.rc)} />
 
       {!isSupabaseConfigured && (
         <form action={resetDemoData} style={{ marginTop: 24 }}>
@@ -141,123 +140,5 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
         </form>
       )}
     </>
-  );
-}
-
-const short = (label: string) => label.split(" · ")[0];
-
-function TrendCharts({ rows, sample, monthsOfData }: { rows: TrendRow[]; sample: boolean; monthsOfData: number }) {
-  const months = rows.map((r) => r.month);
-  const t = (title: string) => (sample ? `SAMPLE · ${title}` : title);
-  return (
-    <>
-      <p className="muted">
-        {sample ? <strong>Sample data.</strong> : <strong>Real numbers from {monthsOfData} months of data.</strong>} Each chart shows the latest 12 months; switch it to All for older months, or tick vs last year to compare each month with the same month a year before. Tap a month to see its numbers.
-      </p>
-      <div className="chart-grid">
-        <TrendChart
-          id="trend-income"
-          title={t("Income and expenses, both clinics")}
-          kind="bar"
-          months={months}
-          series={[
-            { name: "Income", color: "var(--series-income)", values: rows.map((r) => r.income) },
-            { name: "Expenses", color: "var(--series-expenses)", values: rows.map((r) => r.expenses) },
-          ]}
-          notes={rows.map((r) => `Profit ${inr(r.profit.ALL)}`)}
-        />
-        <TrendChart
-          id="trend-profit"
-          title={t("Profit by clinic")}
-          kind="line"
-          months={months}
-          series={[
-            { name: CLINIC_LABEL.SDC1, color: "var(--series-sdc1)", values: rows.map((r) => r.profit.SDC1) },
-            { name: CLINIC_LABEL.SDC2, color: "var(--series-sdc2)", values: rows.map((r) => r.profit.SDC2) },
-          ]}
-        />
-        <TrendChart
-          id="trend-cash"
-          title={t("Cash collected, not yet deposited")}
-          kind="bar"
-          months={months}
-          series={[{ name: "Not deposited", color: "var(--brand)", values: rows.map((r) => r.cashNotDeposited) }]}
-        />
-        <TrendChart
-          id="trend-upi"
-          title={t("UPI in PappyJoe, not in bank")}
-          kind="bar"
-          months={months}
-          series={[{ name: "Difference", color: "var(--brand)", values: rows.map((r) => r.upiGap) }]}
-        />
-      </div>
-    </>
-  );
-}
-
-function TrendTables({ rows }: { rows: TrendRow[] }) {
-  return (
-    <>
-      <TrendTable rows={rows} />
-      <h3 className="sub">Reconciliation gaps by month</h3>
-      <div className="table-wrap">
-        <table className="stack">
-          <thead>
-            <tr>
-              <th>Month</th>
-              <th className="num">Cash not yet deposited</th>
-              <th className="num">UPI in PappyJoe, not in bank</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((r) => (
-              <tr key={r.month}>
-                <td className="row-title">{monthLabel(r.month)}</td>
-                <td data-label="Cash not yet deposited" className={`num ${Math.round(r.cashNotDeposited) ? "neg" : ""}`}>{inr(r.cashNotDeposited)}</td>
-                <td data-label="UPI in PappyJoe, not in bank" className={`num ${Math.round(r.upiGap) ? "neg" : ""}`}>{inr(r.upiGap)}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </>
-  );
-}
-
-function TrendTable({ rows }: { rows: TrendRow[] }) {
-  return (
-    <div className="table-wrap">
-      <table className="stack">
-        <thead>
-          <tr>
-            <th>Month</th>
-            {SCOPES.map(([k, label]) => (
-              <th key={k} className="num">
-                {short(label)} profit
-              </th>
-            ))}
-            <th className="num">Combined income</th>
-            <th className="num">Combined expenses</th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((r) => (
-            <tr key={r.month}>
-              <td className="row-title">{monthLabel(r.month)}</td>
-              {SCOPES.map(([k, label]) => {
-                const p = r.profit[k];
-                return (
-                  <td key={k} data-label={`${short(label)} profit`} className={`num ${p >= 0 ? "pos" : "neg"}`}>
-                    {inr(p)}
-                  </td>
-                );
-              })}
-              <td data-label="Combined income" className="num">{inr(r.income)}</td>
-              <td data-label="Combined expenses" className="num">{inr(r.expenses)}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
   );
 }

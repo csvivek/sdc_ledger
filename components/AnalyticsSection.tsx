@@ -40,7 +40,7 @@ export function AnalyticsSection({ receipts, preview, latestMonth }: { receipts:
         <p className="mock-note">
           <strong>SAMPLE DATA, not real.</strong> Everything in Patients and payments and Card machine below uses invented numbers so you
           can see how the charts will look. Real charts appear automatically once there are more than {CHART_THRESHOLD_MONTHS} months of
-          PappyJoe payments (there {monthsOfData === 1 ? "is" : "are"} {monthsOfData} now). <a href="/dashboard">Back to real numbers</a>
+          PappyJoe payments (there {monthsOfData === 1 ? "is" : "are"} {monthsOfData} now). <a href="/reports">Back to real numbers</a>
         </p>
       )}
       {!preview && monthsOfData === 0 ? (
@@ -61,7 +61,7 @@ export function AnalyticsSection({ receipts, preview, latestMonth }: { receipts:
               <p className="muted">
                 <strong>Real numbers.</strong> Charts appear automatically once there are more than {CHART_THRESHOLD_MONTHS} months of
                 PappyJoe payments. There {monthsOfData === 1 ? "is" : "are"} {monthsOfData} month{monthsOfData === 1 ? "" : "s"} now, so they
-                start after {remaining} more month{remaining === 1 ? "" : "s"}. <a href="/dashboard?preview=charts">Preview the charts with sample data</a>
+                start after {remaining} more month{remaining === 1 ? "" : "s"}. <a href="/reports?preview=charts">Preview the charts with sample data</a>
               </p>
               <AnalyticsTables rows={rows} />
             </>

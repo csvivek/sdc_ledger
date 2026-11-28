@@ -5,7 +5,7 @@ import { deletePettyCount, savePettyCount, type CountFormState } from "@/app/pet
 import { differs, OTHER_REASON } from "@/lib/petty";
 import type { ClinicId, PettyCountReason } from "@/lib/types";
 
-const inr = (n: number) => "₹" + n.toLocaleString("en-IN", { maximumFractionDigits: 2 });
+const inr = (n: number) => (n < 0 ? "-" : "") + "₹" + Math.abs(n).toLocaleString("en-IN", { maximumFractionDigits: 2 });
 
 export interface SavedCount {
   id: string;

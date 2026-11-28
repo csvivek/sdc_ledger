@@ -3,7 +3,9 @@ import { getStore } from "@/lib/data/store";
 import { inr, monthLabel, monthsIn, pettyCashAllTime, pettyCashMonth, todayInIndia } from "@/lib/calc";
 import { differs } from "@/lib/petty";
 import { CLINICS, CLINIC_LABEL, type ClinicId, type LedgerData, type PettyCount } from "@/lib/types";
-import { MonthPicker, pickMonth } from "@/components/MonthPicker";
+import { pickMonth } from "@/components/MonthPicker";
+import { BooksBar } from "@/components/BooksBar";
+import Link from "next/link";
 import { PettyCountForm } from "@/components/PettyCountForm";
 
 export const dynamic = "force-dynamic";
@@ -77,7 +79,10 @@ export default async function PettyCashPage({ searchParams }: { searchParams: Pr
   return (
     <>
       <h1>Petty cash: {title}</h1>
-      <MonthPicker months={months} active={month} basePath="/petty-cash" allTime />
+      <BooksBar d={d} month={month} active="/petty-cash" />
+      <p className="muted">
+        {month === "all" ? <Link href="/petty-cash">Back to one month</Link> : <Link href="/petty-cash?month=all">See all time</Link>}
+      </p>
       <p className="muted">
         The doctor&apos;s two monthly withdrawals (one per clinic) move money from the bank into each clinic&apos;s petty cash.
         They are transfers, not expenses. Expenses paid from petty cash reduce the balance. Cash left in the box at month end

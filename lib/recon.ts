@@ -324,7 +324,7 @@ export function reconcileMonth(d: LedgerData, month: MonthKey, m: Matches = matc
   };
 }
 
-const fmt = (n: number) => "₹" + n.toLocaleString("en-IN", { maximumFractionDigits: 2 });
+const fmt = (n: number) => (n < 0 ? "-" : "") + "₹" + Math.abs(n).toLocaleString("en-IN", { maximumFractionDigits: 2 });
 
 /** A best guess at why a bank UPI credit has no PappyJoe UPI receipt. A hint for the admin, never applied automatically. */
 export function hintForBankUpi(d: LedgerData, t: BankTxn): string {

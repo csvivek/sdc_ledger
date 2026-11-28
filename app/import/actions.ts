@@ -32,7 +32,7 @@ export interface FileResult {
 export type ImportState = { results?: FileResult[]; error?: string };
 
 const MAX_FILES = 8;
-const inr = (n: number) => "₹" + n.toLocaleString("en-IN", { maximumFractionDigits: 2 });
+const inr = (n: number) => (n < 0 ? "-" : "") + "₹" + Math.abs(n).toLocaleString("en-IN", { maximumFractionDigits: 2 });
 const uploaded = (formData: FormData, field: string) =>
   formData.getAll(field).filter((f): f is File => typeof f === "object" && f !== null && "arrayBuffer" in f && f.size > 0);
 
