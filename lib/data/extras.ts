@@ -292,7 +292,8 @@ class JsonExtrasStore implements ExtrasStore {
 
   async listBackups(limit: number) {
     const x = await loadExtrasFile();
-    return ready([...x.backups].sort((a, b) => b.takenAt.localeCompare(a.takenAt)).slice(0, limit));
+    // Newest first; two downloads in the same millisecond keep the later one first.
+    return ready([...x.backups].reverse().sort((a, b) => b.takenAt.localeCompare(a.takenAt)).slice(0, limit));
   }
 
   async listTemplates() {
